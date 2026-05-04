@@ -1,7 +1,8 @@
 import React from 'react';
 
-const KPICards = ({ data }) => {
-  // Use API data if available, otherwise use default values
+const KPICards = ({ data, filter }) => {
+  const periodLabel = filter === 'This Week' ? 'This week' : filter === 'This Month' ? 'This month' : 'Today';
+
   const kpiData = [
     {
       id: 1,
@@ -10,9 +11,9 @@ const KPICards = ({ data }) => {
       label: 'Total Fuel Consumed',
       value: data?.totalFuelConsumed?.toLocaleString() || '0',
       unit: 'Ltrs',
-      change: '+5% from last week',
-      changeType: 'positive',
-      changeIcon: 'fa-arrow-trend-up'
+      change: `${periodLabel}'s total`,
+      changeType: 'neutral',
+      changeIcon: 'fa-minus'
     },
     {
       id: 2,
@@ -21,7 +22,7 @@ const KPICards = ({ data }) => {
       label: 'Total Work Time',
       value: data?.totalWorkTime?.toFixed(1) || '0',
       unit: 'hrs',
-      change: 'All generators',
+      change: `All generators — ${periodLabel}`,
       changeType: 'neutral',
       changeIcon: 'fa-minus'
     },

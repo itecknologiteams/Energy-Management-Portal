@@ -4,61 +4,65 @@ import { Chart, LineController, LineElement, PointElement, LinearScale, Category
 // Register Chart.js components
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
-const FuelTrendChart = ({ data }) => {
+const FuelTrendChart = ({ data, filter }) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
 
   useEffect(() => {
     const ctx = chartRef.current.getContext('2d');
 
-    // Create gradient for the line chart
     const gradient = ctx.createLinearGradient(0, 0, 0, 320);
     gradient.addColorStop(0, 'rgba(234, 88, 12, 0.15)');
     gradient.addColorStop(1, 'rgba(234, 88, 12, 0.01)');
 
-    // Secondary gradient
     const gradient2 = ctx.createLinearGradient(0, 0, 0, 320);
     gradient2.addColorStop(0, 'rgba(34, 197, 94, 0.1)');
     gradient2.addColorStop(1, 'rgba(34, 197, 94, 0.01)');
 
-    // Use API data only - no mock data
     const chartData = data || { labels: [], thisWeek: [], lastWeek: [] };
+    const hasLastWeek = Array.isArray(chartData.lastWeek) && chartData.lastWeek.length > 0;
+
+    const primaryLabel = filter === 'This Week' ? 'This Week (Daily)'
+      : filter === 'This Month' ? 'This Month (Daily)'
+      : 'This Week';
+
+    const datasets = [
+      {
+        label: primaryLabel,
+        data: chartData.thisWeek,
+        borderColor: '#ea580c',
+        backgroundColor: gradient,
+        borderWidth: 2,
+        fill: true,
+        tension: 0.4,
+        pointRadius: 4,
+        pointBackgroundColor: '#ea580c',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        pointHoverRadius: 6,
+      },
+      ...(hasLastWeek ? [{
+        label: 'Last Week',
+        data: chartData.lastWeek,
+        borderColor: '#22c55e',
+        backgroundColor: gradient2,
+        borderWidth: 2,
+        borderDash: [5, 5],
+        fill: true,
+        tension: 0.4,
+        pointRadius: 3,
+        pointBackgroundColor: '#22c55e',
+        pointBorderColor: '#ffffff',
+        pointBorderWidth: 2,
+        pointHoverRadius: 5,
+      }] : []),
+    ];
 
     const config = {
       type: 'line',
       data: {
         labels: chartData.labels,
-        datasets: [
-          {
-            label: 'This Week',
-            data: chartData.thisWeek,
-            borderColor: '#ea580c',
-            backgroundColor: gradient,
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-            pointRadius: 4,
-            pointBackgroundColor: '#ea580c',
-            pointBorderColor: '#ffffff',
-            pointBorderWidth: 2,
-            pointHoverRadius: 6,
-          },
-          {
-            label: 'Last Week',
-            data: chartData.lastWeek,
-            borderColor: '#22c55e',
-            backgroundColor: gradient2,
-            borderWidth: 2,
-            borderDash: [5, 5],
-            fill: true,
-            tension: 0.4,
-            pointRadius: 3,
-            pointBackgroundColor: '#22c55e',
-            pointBorderColor: '#ffffff',
-            pointBorderWidth: 2,
-            pointHoverRadius: 5,
-          }
-        ]
+        datasets,
       },
       options: {
         responsive: true,
@@ -140,20 +144,23 @@ const FuelTrendChart = ({ data }) => {
 
     chartInstance.current = new Chart(ctx, config);
 
-    // Cleanup on unmount
     return () => {
       if (chartInstance.current) {
         chartInstance.current.destroy();
       }
     };
-  }, [data]); // Re-run when data changes
+  }, [data, filter]);
+
+  const subtitle = filter === 'This Week' ? 'Daily breakdown — Past 7 Days'
+    : filter === 'This Month' ? 'Daily breakdown — This Month'
+    : 'Last 7 Days';
 
   return (
     <div className="chart-card main-chart">
       <div className="card-header">
         <div className="card-title-section">
           <h3>Fuel Consumption Trend</h3>
-          <p>Last 7 Days</p>
+          <p>{subtitle}</p>
         </div>
         <div className="card-actions">
           <button className="btn-sm btn-outline">

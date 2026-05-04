@@ -345,9 +345,14 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           generatorStopTime: stopTime,
           generatorStartTimeRaw: analytics.generatorStartTime,
           generatorStopTimeRaw: analytics.generatorStopTime,
-          dailyRuns: analytics.generatorStartTime
-            ? [{ date: formattedDate, startTime: analytics.generatorStartTime, stopTime: analytics.generatorStopTime, workTime: analytics.workTime || 0, fuelConsumption: analytics.fuelConsumption ?? null }]
-            : [],
+          dailyRuns: (analytics.generatorRuns || []).map((run, idx) => ({
+            date:            formattedDate,
+            startTime:       run.start,
+            stopTime:        run.isOpen ? null : run.stop,
+            workTime:        run.workMinutes || 0,
+            fuelConsumption: idx === 0 ? (analytics.fuelConsumption ?? null) : null,
+            isOpen:          run.isOpen,
+          })),
           // Sensor info
           sensors: sensors,
           sensorCount: sensors.fuelKeys?.length || 0,
@@ -441,15 +446,16 @@ function aggregateVehiclesAcrossDates(dayResults) {
         if (a.generatorStopTime)                           e.generatorStopTime  = a.generatorStopTime;
       }
 
-      if ((a.workTime || 0) > 0 || a.generatorStartTime) {
+      (a.generatorRuns || []).forEach((run, idx) => {
         map.get(v.vehicleId).analytics.dailyRuns.push({
           date:            dayDate,
-          startTime:       a.generatorStartTime,
-          stopTime:        a.generatorStopTime,
-          workTime:        a.workTime        || 0,
-          fuelConsumption: a.fuelConsumption ?? null,
+          startTime:       run.start,
+          stopTime:        run.isOpen ? null : run.stop,
+          workTime:        run.workMinutes || 0,
+          fuelConsumption: idx === 0 ? (a.fuelConsumption ?? null) : null,
+          isOpen:          run.isOpen,
         });
-      }
+      });
     }
   }
 
@@ -523,7 +529,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
         : 0,
     },
     vehicles:        transformedVehicles,
-    fuelTrend:       generateLast7DaysData(endDate, aggregated),
+    fuelTrend:       buildRangeTrendData(validDays, dates),
     vehicleFuelData: aggregated.map(v => ({
       name:         v.vehicleName || `Generator-${v.vehicleId?.toString().slice(-3)}`,
       fuelConsumed: v.analytics?.fuelConsumption || 0,
@@ -535,7 +541,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
   };
 };
 
-// Helper to generate last 7 days trend data
+// Helper to generate last 7 days trend data (used for single-day "Today" view)
 function generateLast7DaysData(endDate, vehicles) {
   const dates = [];
   const current = new Date(endDate);
@@ -551,26 +557,33 @@ function generateLast7DaysData(endDate, vehicles) {
     return date.toLocaleDateString('en-US', { weekday: 'short' });
   });
 
-  // Generate trend data based on current fuel consumption data
   const currentTotal = vehicles.reduce((sum, v) => sum + (v.analytics?.fuelConsumption || 0), 0);
-
-  // Only generate trend data if we have actual fuel consumption data
-  let thisWeekData = [];
-  let lastWeekData = [];
-
-  if (currentTotal > 0) {
-    // Create variation around the current value
-    thisWeekData = dates.map((_, index) => {
-      const variation = (Math.random() - 0.5) * 0.3; // ±15% variation
-      return Math.round(currentTotal * (1 + variation * (index / 6)) * 10) / 10;
-    });
-    lastWeekData = thisWeekData.map(val => Math.round(val * 0.85 * 10) / 10); // Last week was ~85%
-  }
 
   return {
     labels,
-    thisWeek: thisWeekData,
-    lastWeek: lastWeekData,
+    thisWeek: currentTotal > 0 ? dates.map(() => Math.round(currentTotal * 10) / 10) : [],
+    lastWeek: [],
+  };
+}
+
+// Build real per-day fuel totals for range views (This Week / This Month)
+function buildRangeTrendData(dayResults, allDates) {
+  const totalByDate = new Map(
+    dayResults.map(day => [
+      day.date,
+      (day.vehicles || []).reduce((s, v) => s + (v.analytics?.fuelConsumption || 0), 0),
+    ])
+  );
+  const labels = allDates.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    return allDates.length <= 7
+      ? dt.toLocaleDateString('en-US', { weekday: 'short' })
+      : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  });
+  return {
+    labels,
+    thisWeek: allDates.map(d => Math.round((totalByDate.get(d) || 0) * 10) / 10),
+    lastWeek: [],
   };
 }
 

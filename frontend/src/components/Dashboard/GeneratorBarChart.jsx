@@ -4,7 +4,7 @@ import { Chart, BarController, BarElement, LinearScale, CategoryScale, Tooltip }
 // Register Chart.js components
 Chart.register(BarController, BarElement, LinearScale, CategoryScale, Tooltip);
 
-const GeneratorBarChart = ({ data }) => {
+const GeneratorBarChart = ({ data, filter }) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
 
@@ -112,12 +112,16 @@ const GeneratorBarChart = ({ data }) => {
     };
   }, [data]); // Re-run when data changes
 
+  const subtitle = filter === 'This Week' ? 'Consumption This Week'
+    : filter === 'This Month' ? 'Consumption This Month'
+    : 'Consumption Today';
+
   return (
     <div className="chart-card side-chart">
       <div className="card-header">
         <div className="card-title-section">
           <h3>Generator-wise Fuel</h3>
-          <p>Consumption Today</p>
+          <p>{subtitle}</p>
         </div>
       </div>
       <div className="chart-container">

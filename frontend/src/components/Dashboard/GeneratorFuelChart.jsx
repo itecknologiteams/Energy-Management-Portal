@@ -1,15 +1,26 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { Chart, LineController, LineElement, PointElement, LinearScale, TimeScale, Tooltip, Legend, Filler } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import { getVehicleFuelSeries } from '../../services/api';
 
-// Register Chart.js components
 Chart.register(LineController, LineElement, PointElement, LinearScale, TimeScale, Tooltip, Legend, Filler);
 
-const GeneratorFuelChart = ({ vehicles, selectedDate }) => {
+function buildDateList(start, end) {
+  const dates = [];
+  const cur = new Date(start + 'T00:00:00');
+  const last = new Date(end + 'T00:00:00');
+  while (cur <= last) {
+    dates.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates.reverse(); // most recent first
+}
+
+const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate }) => {
   const chartRef = useRef(null);
   const chartInstance = useRef(null);
   const [selectedGenerator, setSelectedGenerator] = useState(null);
+  const [viewDate, setViewDate] = useState(selectedDate);
   const [fuelData, setFuelData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -20,6 +31,17 @@ const GeneratorFuelChart = ({ vehicles, selectedDate }) => {
     refuelAmount: 0
   });
 
+  // When filter or endDate changes, reset viewDate to the most recent day
+  useEffect(() => {
+    setViewDate(endDate || selectedDate);
+  }, [filter, endDate, selectedDate]);
+
+  // Build list of selectable dates for range filters
+  const dateOptions = useMemo(() => {
+    if (filter === 'Today' || !startDate || !endDate) return null;
+    return buildDateList(startDate, endDate);
+  }, [filter, startDate, endDate]);
+
   // Set default selected generator
   useEffect(() => {
     if (vehicles && vehicles.length > 0 && !selectedGenerator) {
@@ -27,17 +49,17 @@ const GeneratorFuelChart = ({ vehicles, selectedDate }) => {
     }
   }, [vehicles]);
 
-  // Fetch fuel series data when generator or date changes
+  // Fetch fuel series data when generator or viewDate changes
   useEffect(() => {
     const fetchFuelSeries = async () => {
-      if (!selectedGenerator || !selectedDate) return;
+      if (!selectedGenerator || !viewDate) return;
 
       try {
         setLoading(true);
         setError(null);
 
-        console.log('Fetching fuel series for generator:', selectedGenerator.id, 'date:', selectedDate);
-        const data = await getVehicleFuelSeries(selectedGenerator.id, selectedDate);
+        console.log('Fetching fuel series for generator:', selectedGenerator.id, 'date:', viewDate);
+        const data = await getVehicleFuelSeries(selectedGenerator.id, viewDate);
         console.log('Fuel series API response:', data);
 
         // Handle different API response formats
@@ -94,7 +116,7 @@ const GeneratorFuelChart = ({ vehicles, selectedDate }) => {
     };
 
     fetchFuelSeries();
-  }, [selectedGenerator, selectedDate]);
+  }, [selectedGenerator, viewDate]);
 
   // Create/update chart
   useEffect(() => {
@@ -252,14 +274,39 @@ const GeneratorFuelChart = ({ vehicles, selectedDate }) => {
     setSelectedGenerator(generator);
   };
 
+  const chartSubtitle = filter === 'Today'
+    ? 'Real-time fuel monitoring'
+    : `Fuel level for ${viewDate || ''}`;
+
+  const fmtDateOption = (d) => {
+    try {
+      return new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+      });
+    } catch { return d; }
+  };
+
   return (
     <div className="chart-card generator-fuel-chart">
       <div className="card-header">
         <div className="card-title-section">
           <h3>Fuel Level History</h3>
-          <p>Real-time fuel monitoring</p>
+          <p>{chartSubtitle}</p>
         </div>
         <div className="generator-selector">
+          {dateOptions && (
+            <select
+              value={viewDate || ''}
+              onChange={e => setViewDate(e.target.value)}
+              className="generator-select"
+              disabled={loading}
+              style={{ marginRight: '8px' }}
+            >
+              {dateOptions.map(d => (
+                <option key={d} value={d}>{fmtDateOption(d)}</option>
+              ))}
+            </select>
+          )}
           <select
             value={selectedGenerator?.id || ''}
             onChange={handleGeneratorChange}
@@ -315,7 +362,7 @@ const GeneratorFuelChart = ({ vehicles, selectedDate }) => {
             <i className="fas fa-chart-line"></i>
             <span>No fuel data available for this date</span>
             <small style={{ color: '#9ca3af', marginTop: '8px', fontSize: '12px' }}>
-              Generator: {selectedGenerator?.id}, Date: {selectedDate}
+              Generator: {selectedGenerator?.id}, Date: {viewDate}
             </small>
           </div>
         ) : (

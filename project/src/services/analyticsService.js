@@ -57,6 +57,8 @@ const MIN_VALID_FUEL_READING     = 10;   // L — discard ADC-near-zero garbage 
 const POST_RUN_GUARD_MINUTES     = 30;   // min — suppress theft if generator ran recently
 const MIN_RUN_DURATION_MS        = 60 * 1000; // ms — minimum ON period to count as a run
 const MIN_BACKUP_VOLT_MV         = 10;        // mV — treat ignition as OFF if backup battery ≤ this
+const BASELINE_LOOKBACK_MS       = 30 * 60 * 1000; // ms — window behind drop to scan for baseline support
+const MIN_BASELINE_SUSTAINED_MS  = 20 * 60 * 1000; // ms — baseline must be present for this long to be real
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN ENTRY POINT
@@ -703,6 +705,28 @@ function detectFuelEvents(raw, filtered, dayStart, powerEvents = []) {
 
       const baseline = filtered[i].fuel;
       const dropTime = filtered[i + 1].timestamp;
+
+      // Baseline sustainability guard: the pre-drop fuel level must appear in
+      // the raw series for at least MIN_BASELINE_SUSTAINED_MS within a
+      // BASELINE_LOOKBACK_MS window before the drop. ADC power-on spikes and
+      // sensor-settling artefacts are brief (< a few minutes); genuine theft
+      // baselines persist for hours. The lookback window is wide enough to
+      // include warmup-period readings, so early-morning real drops are not
+      // excluded when warmup data exists.
+      {
+        const lookbackStart = new Date(dropTime.getTime() - BASELINE_LOOKBACK_MS);
+        const atBaseline = raw.filter(
+          (pt) =>
+            pt.timestamp >= lookbackStart &&
+            pt.timestamp <= dropTime &&
+            Math.abs(pt.fuel - baseline) <= DROP_ALERT_THRESHOLD
+        );
+        if (atBaseline.length < 2) continue;
+        const sustainedMs =
+          atBaseline[atBaseline.length - 1].timestamp.getTime() -
+          atBaseline[0].timestamp.getTime();
+        if (sustainedMs < MIN_BASELINE_SUSTAINED_MS) continue;
+      }
 
       // Post-run guard: fuel drops within 30 min of a >1 min generator run are
       // consumption settling (or sensor re-stabilisation), not theft.

@@ -28,6 +28,7 @@ const Dashboard = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [filterDateRange, setFilterDateRange] = useState({ start: toLocalDateStr(new Date()), end: toLocalDateStr(new Date()) });
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // Update date display
@@ -57,21 +58,29 @@ const Dashboard = ({ onNavigate }) => {
         const todayStr = toLocalDateStr(today);
 
         let data;
+        let filterStart = todayStr;
+        let filterEnd = todayStr;
+
         if (filter === 'Today') {
+          filterStart = filterEnd = todayStr;
           setSelectedDate(todayStr);
           data = await getDashboardData(fleetId || 1735, todayStr);
         } else if (filter === 'This Week') {
           const weekStart = new Date(today);
-          weekStart.setDate(weekStart.getDate() - 6); // last 7 days including today
-          const startStr = toLocalDateStr(weekStart);
+          weekStart.setDate(weekStart.getDate() - 6);
+          filterStart = toLocalDateStr(weekStart);
+          filterEnd = todayStr;
           setSelectedDate(todayStr);
-          data = await getDashboardDataRange(fleetId || 1735, startStr, todayStr);
+          data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
         } else if (filter === 'This Month') {
           const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-          const startStr = toLocalDateStr(monthStart);
+          filterStart = toLocalDateStr(monthStart);
+          filterEnd = todayStr;
           setSelectedDate(todayStr);
-          data = await getDashboardDataRange(fleetId || 1735, startStr, todayStr);
+          data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
         }
+
+        setFilterDateRange({ start: filterStart, end: filterEnd });
         setDashboardData(data);
       } catch (err) {
         console.error('Failed to fetch dashboard data:', err);
@@ -317,14 +326,17 @@ const Dashboard = ({ onNavigate }) => {
             <ErrorDisplay />
           ) : (
             <>
-              <KPICards data={dashboardData?.kpi} />
+              <KPICards data={dashboardData?.kpi} filter={filter} />
               <div className="charts-section">
-                <FuelTrendChart data={dashboardData?.fuelTrend} />
-                <GeneratorBarChart data={dashboardData?.vehicleFuelData} />
+                <FuelTrendChart data={dashboardData?.fuelTrend} filter={filter} />
+                <GeneratorBarChart data={dashboardData?.vehicleFuelData} filter={filter} />
               </div>
               <GeneratorFuelChart
                 vehicles={dashboardData?.vehicles}
                 selectedDate={selectedDate}
+                filter={filter}
+                startDate={filterDateRange.start}
+                endDate={filterDateRange.end}
               />
               <div className="bottom-section">
                 <div className="table-card">
