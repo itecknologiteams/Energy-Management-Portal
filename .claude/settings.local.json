@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(code-review:code-review)",
+      "PowerShell(gh pr list --json number,title,state,isDraft,author)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(gh pr list --json number,title,state,isDraft,author 2>&1)"
+    ]
+  }
+}

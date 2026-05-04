@@ -62,20 +62,11 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
         const data = await getVehicleFuelSeries(selectedGenerator.id, viewDate);
         console.log('Fuel series API response:', data);
 
-        // Handle different API response formats
-        // Format 1: { readings: [...] }
-        // Format 2: Direct array [...]
         let readings = [];
-        if (data && data.readings && Array.isArray(data.readings)) {
-          readings = data.readings;
+        if (data && Array.isArray(data.fuelSeries)) {
+          readings = data.fuelSeries;
         } else if (Array.isArray(data)) {
           readings = data;
-        } else if (data && typeof data === 'object') {
-          // Try to find array in the response
-          const possibleArrays = Object.values(data).filter(v => Array.isArray(v));
-          if (possibleArrays.length > 0) {
-            readings = possibleArrays[0];
-          }
         }
 
         console.log('Processed readings:', readings.length, 'items');

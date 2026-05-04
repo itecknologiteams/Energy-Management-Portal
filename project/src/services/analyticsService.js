@@ -229,7 +229,7 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
     //    Vehicles 373197/375957 store actual 12 V supply (~11 000–15 000 mV)
     //    in Battery, which far exceeds the calibration range (max ~5 000).
     //    Allow values up to 2x calibration max to handle extrapolation,
-    //    or use default max of 15000 when no calibration exists.
+    //    or use default max of 6000 when no calibration exists.
     if (fuel === null) {
       const batRaw = parseNumeric(row.battery);
       const maxAllowed = calibration ? calibrationMaxX * 2.0 : 6000;
