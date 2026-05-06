@@ -7,6 +7,7 @@
 const fleetRepository = require('../repositories/fleetRepository');
 const sensorRepository = require('../repositories/sensorRepository');
 const sensorMapper = require('../helpers/sensorMapper');
+const { NO_FUEL_SENSOR_VEHICLE_IDS } = require('../constants');
 
 /**
  * Validate that a value is a positive integer.
@@ -97,7 +98,10 @@ async function getFleetVehiclesWithSensors(fleetId) {
         return {
           vehicleId,
           vehicleName,
-          sensors,
+          sensors: {
+            ...sensors,
+            fuelChartExcluded: NO_FUEL_SENSOR_VEHICLE_IDS.includes(vehicleId),
+          },
         };
       } catch (err) {
         console.error(`[fleetService] Failed to get sensors for vehicle ${vehicleId}:`, err.message);

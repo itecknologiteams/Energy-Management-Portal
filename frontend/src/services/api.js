@@ -276,7 +276,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
     // Create a map of vehicle sensors by vehicleId for quick lookup
     const sensorsMap = new Map();
     fleetVehicles.vehicles?.forEach(v => {
-      sensorsMap.set(v.vehicleId, v.sensors);
+      sensorsMap.set(String(v.vehicleId), v.sensors);
     });
 
     // Calculate aggregate metrics from the analytics data
@@ -479,7 +479,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
   const aggregated = aggregateVehiclesAcrossDates(validDays);
 
   const sensorsMap = new Map();
-  fleetVehicles.vehicles?.forEach(v => sensorsMap.set(v.vehicleId, v.sensors));
+  fleetVehicles.vehicles?.forEach(v => sensorsMap.set(String(v.vehicleId), v.sensors));
 
   const totalFuelConsumed = aggregated.reduce((s, v) => s + (v.analytics?.fuelConsumption || 0), 0);
   const totalWorkTime     = aggregated.reduce((s, v) => s + (v.analytics?.workTime        || 0), 0);

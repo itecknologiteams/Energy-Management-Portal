@@ -1,54 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { getFleetDetails } from '../../services/api';
-
 const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
   const filters = ['Today', 'This Week', 'This Month'];
   const { user, fleetId } = useAuth();
-  const [fleetName, setFleetName] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef(null);
-
-  // Fetch fleet details to get company name
-  useEffect(() => {
-    const fetchFleetDetails = async () => {
-      if (fleetId) {
-        try {
-          // First check localStorage
-          const storedFleet = localStorage.getItem('fleetData');
-          if (storedFleet) {
-            try {
-              const fleetData = JSON.parse(storedFleet);
-              if (fleetData?.name || fleetData?.fleetName) {
-                setFleetName(fleetData.name || fleetData.fleetName);
-                return;
-              }
-            } catch (e) {
-              // ignore parse error
-            }
-          }
-
-          // Fetch from API
-          const fleetData = await getFleetDetails(fleetId);
-          console.log('Fleet data:', fleetData);
-
-          if (fleetData) {
-            const name = fleetData.name || fleetData.fleetName ||
-                        fleetData.company || fleetData.companyName ||
-                        fleetData.organization;
-            if (name) {
-              setFleetName(name);
-              localStorage.setItem('fleetData', JSON.stringify(fleetData));
-            }
-          }
-        } catch (err) {
-          console.error('Failed to fetch fleet details:', err);
-        }
-      }
-    };
-
-    fetchFleetDetails();
-  }, [fleetId]);
 
   // Debug: Log user data to see available fields
   useEffect(() => {
@@ -61,13 +17,7 @@ const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
   // Get user details from auth context or fallback
   const userName = user?.name || user?.username || user?.fullName || 'User';
 
-  // Get company name from multiple possible sources
-  // Priority: fleetName (from API) > user.fleetName > user.company > user.companyName > 'Company'
   const getCompanyName = () => {
-    // Use fleet name from API first
-    if (fleetName) return fleetName;
-
-    // Then check user object
     if (user?.fleetName) return user.fleetName;
     if (user?.company) return user.company;
     if (user?.companyName) return user.companyName;

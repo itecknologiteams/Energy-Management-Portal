@@ -9,6 +9,11 @@ const GeneratorBarChart = ({ data, filter }) => {
   const chartInstance = useRef(null);
 
   useEffect(() => {
+    if (chartInstance.current) {
+      chartInstance.current.destroy();
+      chartInstance.current = null;
+    }
+
     const ctx = chartRef.current.getContext('2d');
 
     // Use API data only - no mock data

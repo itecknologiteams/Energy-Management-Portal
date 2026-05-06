@@ -66,6 +66,16 @@ const DEFAULT_SENSOR_KEYS = {
   generator: '236',     // io236 may contain generator state
 };
 
+// ─── Vehicles excluded from the Fuel Level History chart ────────────────────
+// These vehicles have VehicleSensors rows with calibration in the DB, but the
+// physical fuel sensor probe is not connected (io9 Params always empty).
+// Battery column on these devices carries device supply voltage, not fuel ADC.
+// Removing them here avoids a DB schema change while keeping the chart clean.
+const NO_FUEL_SENSOR_VEHICLE_IDS = [
+  375742, // VEHARI ROAD D/S   — sensor configured but probe not installed
+  375957, // INNER BYE PASS D/S — Battery column is 12 V supply, not fuel ADC
+];
+
 // ─── Environment & Debugging ────────────────────────────────────────────────
 
 // Enables verbose logging; true in all non-production environments
@@ -95,5 +105,6 @@ module.exports = {
   SENSOR_TYPE_ENGINE_HOURS,
   SENSOR_TYPE_GENERATOR,
   DEFAULT_SENSOR_KEYS,
+  NO_FUEL_SENSOR_VEHICLE_IDS,
   DEBUG_MODE,
 };

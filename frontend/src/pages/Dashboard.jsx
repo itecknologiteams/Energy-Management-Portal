@@ -28,7 +28,7 @@ const Dashboard = ({ onNavigate }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [filterDateRange, setFilterDateRange] = useState({ start: toLocalDateStr(new Date()), end: toLocalDateStr(new Date()) });
+  const [filterDateRange, setFilterDateRange] = useState({ start: toLocalDateStr(new Date()), end: toLocalDateStr(new Date()) }); // updated on each fetchData run
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   // Update date display
@@ -67,7 +67,10 @@ const Dashboard = ({ onNavigate }) => {
           data = await getDashboardData(fleetId || 1735, todayStr);
         } else if (filter === 'This Week') {
           const weekStart = new Date(today);
-          weekStart.setDate(weekStart.getDate() - 6);
+          // Start from Monday of the current calendar week
+          const day = weekStart.getDay(); // 0=Sun, 1=Mon … 6=Sat
+          const daysToMonday = day === 0 ? 6 : day - 1;
+          weekStart.setDate(weekStart.getDate() - daysToMonday);
           filterStart = toLocalDateStr(weekStart);
           filterEnd = todayStr;
           setSelectedDate(todayStr);
