@@ -42,9 +42,15 @@ const KPICards = ({ data, filter }) => {
       icon: 'fa-battery-full',
       iconClass: 'cost-icon',
       label: 'Avg Battery Health',
-      value: data?.batteryHealth?.toLocaleString() || '0',
-      unit: 'mV',
-      change: 'Fleet average',
+      value: data?.batteryHealth != null
+        ? data.batteryHealth >= 1000
+          ? (data.batteryHealth / 1000).toFixed(1)
+          : data.batteryHealth.toLocaleString()
+        : '—',
+      unit: data?.batteryHealth != null
+        ? data.batteryHealth >= 1000 ? 'V' : 'mV'
+        : '',
+      change: data?.batteryHealth != null ? 'Fleet average' : 'No data available',
       changeType: 'neutral',
       changeIcon: 'fa-minus',
       isCustom: true

@@ -48,6 +48,13 @@ const STATUS = {
     ring:    'ring-emerald-100',
     pulse:   true,
   },
+  Active: {
+    badge:   'bg-blue-50 text-blue-700 border-blue-200',
+    dot:     'bg-blue-400',
+    icon:    'bg-blue-100 text-blue-600',
+    ring:    'ring-blue-100',
+    pulse:   false,
+  },
   Alert: {
     badge:   'bg-red-50 text-red-700 border-red-200',
     dot:     'bg-red-500',
@@ -370,12 +377,8 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
   const fuelLevelDisplay = item.fuelLevel != null && item.fuelLevel !== '-'
     ? (typeof item.fuelLevel === 'number' ? `${item.fuelLevel} L` : item.fuelLevel)
     : '—';
-  const batteryDisplay = item.batteryHealth != null && item.batteryHealth !== '-'
-    ? (typeof item.batteryHealth === 'number'
-        ? item.batteryHealth >= 1000
-          ? `${(item.batteryHealth / 1000).toFixed(1)} V`
-          : `${item.batteryHealth} mV`
-        : item.batteryHealth)
+  const batteryDisplay = item.batteryHealth != null
+    ? `${(item.batteryHealth / 1000).toFixed(1)} V`
     : '—';
 
   const hasDailyRuns = Array.isArray(item.dailyRuns) && item.dailyRuns.length > 0;

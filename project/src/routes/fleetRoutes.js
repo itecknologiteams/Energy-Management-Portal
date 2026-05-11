@@ -85,4 +85,12 @@ router.get(
   fleetController.getRawSensors
 );
 
+// GET /api/fleets/:fleetId/battery-check?date=YYYY-MM-DD — raw battery fields for all vehicles
+router.get(
+  '/fleets/:fleetId/battery-check',
+  noCache,
+  validateFleetId,
+  fleetController.getFleetBatteryCheck
+);
+
 module.exports = router;

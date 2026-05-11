@@ -582,6 +582,60 @@ async function getRawSensors(req, res, next) {
   }
 }
 
+/**
+ * GET /api/fleets/:fleetId/battery-check?date=YYYY-MM-DD
+ * Show raw battery-related fields (battery, backupBattery, powerVolt, Params["66"])
+ * for every vehicle in the fleet. Used to diagnose why batteryHealth shows null.
+ */
+async function getFleetBatteryCheck(req, res, next) {
+  try {
+    const { fleetId } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({ success: false, error: { message: 'date required (YYYY-MM-DD)' } });
+    }
+
+    const fleetData = await fleetService.getFleetVehicles(fleetId);
+    const { parseParams, getParamValue, parseNumeric } = require('../services/analyticsService');
+
+    const results = await Promise.all(
+      fleetData.vehicles.map(async ({ vehicleId, vehicleName }) => {
+        try {
+          const rows = await getTrackingData(parseInt(vehicleId, 10), date);
+          if (rows.length === 0) return { vehicleId, vehicleName, status: 'no_data' };
+
+          const last = rows[rows.length - 1];
+          const params = parseParams(last.params);
+
+          const allParamKeys = Object.keys(params).filter(k => {
+            const v = parseNumeric(params[k]);
+            return v !== null && v >= 9 && v <= 35; // voltage range 9-35 V
+          });
+
+          return {
+            vehicleId,
+            vehicleName,
+            battery:       last.battery,
+            backupBattery: last.backupBattery,
+            powerVolt:     last.powerVolt,
+            param66:       getParamValue(params, '66'),
+            param67:       getParamValue(params, '67'),
+            voltageParams: allParamKeys.map(k => ({ key: k, value: params[k] })),
+            totalRows:     rows.length,
+          };
+        } catch {
+          return { vehicleId, vehicleName, status: 'error' };
+        }
+      })
+    );
+
+    res.json({ success: true, fleetId, date, vehicles: results });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   getFleetVehicles,
   getFleetVehiclesWithSensors,
@@ -592,4 +646,5 @@ module.exports = {
   getVehicleFuelSeries,
   fixCalibration,
   getRawSensors,
+  getFleetBatteryCheck,
 };

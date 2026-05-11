@@ -168,6 +168,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
 
   return {
     batteryHealth:      calculateBatteryHealth(trackingRows),
+    gpsBackupBattery:   calculateGpsBackupBattery(trackingRows),
     fuelConsumption,
     totalEngineHours:   calculateTotalEngineHours(trackingRows),
     fuelRefilled:       round(totalRefueled, 2) || 0,
@@ -966,6 +967,23 @@ function calculateBatteryHealth(rows) {
     return round(batRaw, 0);
   }
 
+  return null;
+}
+
+/**
+ * 1b. GPS BACKUP BATTERY — internal Li-Po of the GPS tracker (~3.5–4.5 V).
+ * Only returned when the device's Battery/PowerVolt columns are NOT a supply
+ * voltage (i.e. when batteryHealth returns null). Used as a fallback indicator
+ * that the GPS device is powered and alive.
+ *
+ * @param {Array} rows - raw tracking rows
+ * @returns {number|null} GPS backup battery in mV, or null
+ */
+function calculateGpsBackupBattery(rows) {
+  if (rows.length === 0) return null;
+  const last = rows[rows.length - 1];
+  const batt = parseNumeric(last.backupBattery);
+  if (batt !== null && batt >= 3500 && batt <= 4500) return round(batt, 0);
   return null;
 }
 

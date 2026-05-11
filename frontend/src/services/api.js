@@ -110,7 +110,7 @@ const validators = {
 // Helper function for making API calls
 const fetchApi = async (endpoint, options = {}) => {
   //remove the API_BASE_URL before deploying to production
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${endpoint}`;
 
   const config = {
     headers: {
@@ -296,9 +296,12 @@ export const getDashboardData = async (fleetId = 1735, date) => {
         activeVehicles: activeVehicles,
         totalWorkTime: Math.round(totalWorkTime / 60 * 10) / 10, // Convert to hours
         totalVehicles: vehicles.length,
-        batteryHealth: vehicles.length > 0
-          ? Math.round(vehicles.reduce((sum, v) => sum + (v.analytics?.batteryHealth || 0), 0) / vehicles.length)
-          : 0,
+        batteryHealth: (() => {
+          const withBatt = vehicles.filter(v => v.analytics?.batteryHealth != null && v.analytics.batteryHealth > 0);
+          return withBatt.length > 0
+            ? Math.round(withBatt.reduce((s, v) => s + v.analytics.batteryHealth, 0) / withBatt.length)
+            : null;
+        })(),
       },
 
       // Table Data - Vehicles with detailed analytics
@@ -314,19 +317,22 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           ? new Date(analytics.generatorStopTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
           : '-';
 
-        // Determine status based on work time and fuel theft
+        // "Running" = generator has an open (still-on) run on today's date.
+        // "Active"  = ran at some point on this date but is no longer running.
+        const todayStr = new Date().toISOString().split('T')[0];
+        const isCurrentlyRunning = formattedDate === todayStr &&
+          (analytics.generatorRuns || []).some(r => r.isOpen);
+
         let status = 'Normal';
         let statusClass = 'normal';
         let iconClass = '';
 
         if (analytics.fuelTheft > 0) {
-          status = 'Alert';
-          statusClass = 'alert';
-          iconClass = 'red';
+          status = 'Alert';    statusClass = 'alert';   iconClass = 'red';
+        } else if (isCurrentlyRunning) {
+          status = 'Running';  statusClass = 'running'; iconClass = 'green';
         } else if ((analytics.workTime || 0) > 0) {
-          status = 'Running';
-          statusClass = 'running';
-          iconClass = 'green';
+          status = 'Active';   statusClass = 'active';  iconClass = 'blue';
         }
 
         return {
@@ -334,7 +340,8 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           name: v.vehicleName || v.name || `Generator-${v.vehicleId?.toString().slice(-3)}`,
           type: 'Generator',
           // Core metrics from analytics
-          batteryHealth: analytics.batteryHealth || '-',
+          batteryHealth: analytics.batteryHealth ?? null,
+          gpsBackupBattery: analytics.gpsBackupBattery ?? null,
           fuelLevel: analytics.fuel || '-',
           fuelConsumption: analytics.fuelConsumption || 0,
           fuelTheft: analytics.fuelTheft || 0,
@@ -424,6 +431,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
           vehicleName: v.vehicleName,
           analytics: {
             batteryHealth:      a.batteryHealth      ?? null,
+            gpsBackupBattery:   a.gpsBackupBattery   ?? null,
             fuelConsumption:    a.fuelConsumption     ?? 0,
             totalEngineHours:   a.totalEngineHours    ?? 0,
             fuelRefilled:       a.fuelRefilled        ?? 0,
@@ -442,8 +450,9 @@ function aggregateVehiclesAcrossDates(dayResults) {
         e.fuelRefilled     = Math.round(((e.fuelRefilled     || 0) + (a.fuelRefilled     || 0)) * 100) / 100;
         e.fuelTheft        = Math.round(((e.fuelTheft        || 0) + (a.fuelTheft        || 0)) * 100) / 100;
         e.workTime         = Math.round(((e.workTime         || 0) + (a.workTime         || 0)) * 10)  / 10;
-        if (a.batteryHealth != null) e.batteryHealth = a.batteryHealth;
-        if (a.fuel          != null) e.fuel          = a.fuel;
+        if (a.batteryHealth    != null) e.batteryHealth    = a.batteryHealth;
+        if (a.gpsBackupBattery != null) e.gpsBackupBattery = a.gpsBackupBattery;
+        if (a.fuel             != null) e.fuel             = a.fuel;
         if (!e.generatorStartTime && a.generatorStartTime) e.generatorStartTime = a.generatorStartTime;
         if (a.generatorStopTime)                           e.generatorStopTime  = a.generatorStopTime;
       }
@@ -493,15 +502,24 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
     const sensors   = sensorsMap.get(v.vehicleId?.toString()) || {};
     const analytics = v.analytics || {};
 
+    // "Running" = has an open run on today's date (engine on right now).
+    // "Active"  = ran during the period but not currently on.
+    const todayStr = new Date().toISOString().split('T')[0];
+    const isCurrentlyRunning = (analytics.dailyRuns || []).some(
+      r => r.isOpen && r.date === todayStr
+    );
+
     let status = 'Normal', statusClass = 'normal', iconClass = '';
-    if (analytics.fuelTheft > 0)            { status = 'Alert';   statusClass = 'alert';   iconClass = 'red';   }
-    else if ((analytics.workTime || 0) > 0) { status = 'Running'; statusClass = 'running'; iconClass = 'green'; }
+    if (analytics.fuelTheft > 0)   { status = 'Alert';   statusClass = 'alert';   iconClass = 'red';   }
+    else if (isCurrentlyRunning)   { status = 'Running'; statusClass = 'running'; iconClass = 'green'; }
+    else if ((analytics.workTime || 0) > 0) { status = 'Active';  statusClass = 'active';  iconClass = 'blue';  }
 
     return {
       id:               v.vehicleId,
       name:             v.vehicleName || `Generator-${v.vehicleId?.toString().slice(-3)}`,
       type:             'Generator',
-      batteryHealth:    analytics.batteryHealth || '-',
+      batteryHealth:    analytics.batteryHealth    ?? null,
+      gpsBackupBattery: analytics.gpsBackupBattery ?? null,
       fuelLevel:        analytics.fuel          || '-',
       fuelConsumption:  analytics.fuelConsumption  || 0,
       fuelTheft:        analytics.fuelTheft        || 0,
@@ -527,9 +545,12 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       activeVehicles,
       totalWorkTime: Math.round(totalWorkTime / 60 * 10) / 10,
       totalVehicles: aggregated.length,
-      batteryHealth: aggregated.length > 0
-        ? Math.round(aggregated.reduce((s, v) => s + (v.analytics?.batteryHealth || 0), 0) / aggregated.length)
-        : 0,
+      batteryHealth: (() => {
+        const withBatt = aggregated.filter(v => v.analytics?.batteryHealth != null && v.analytics.batteryHealth > 0);
+        return withBatt.length > 0
+          ? Math.round(withBatt.reduce((s, v) => s + v.analytics.batteryHealth, 0) / withBatt.length)
+          : null;
+      })(),
     },
     vehicles:        transformedVehicles,
     fuelTrend:       buildRangeTrendData(validDays, dates),
