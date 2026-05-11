@@ -109,7 +109,8 @@ const validators = {
 
 // Helper function for making API calls
 const fetchApi = async (endpoint, options = {}) => {
-  const url = `${endpoint}`;
+  //remove the API_BASE_URL before deploying to production
+  const url = `${API_BASE_URL}${endpoint}`;
 
   const config = {
     headers: {
