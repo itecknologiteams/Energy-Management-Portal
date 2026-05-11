@@ -109,7 +109,7 @@ const validators = {
 
 // Helper function for making API calls
 const fetchApi = async (endpoint, options = {}) => {
-  const url = `${API_BASE_URL}${endpoint}`;
+  const url = `${endpoint}`;
 
   const config = {
     headers: {
@@ -348,10 +348,11 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           dailyRuns: (analytics.generatorRuns || []).map((run, idx) => ({
             date:            formattedDate,
             startTime:       run.start,
-            stopTime:        run.isOpen ? null : run.stop,
+            stopTime:        run.stop,   // always the last-known time; isOpen flag handles display
             workTime:        run.workMinutes || 0,
             fuelConsumption: idx === 0 ? (analytics.fuelConsumption ?? null) : null,
             isOpen:          run.isOpen,
+            isCarryover:     run.isCarryover || false,
           })),
           // Sensor info
           sensors: sensors,
@@ -450,10 +451,11 @@ function aggregateVehiclesAcrossDates(dayResults) {
         map.get(v.vehicleId).analytics.dailyRuns.push({
           date:            dayDate,
           startTime:       run.start,
-          stopTime:        run.isOpen ? null : run.stop,
+          stopTime:        run.stop,   // always the last-known time; isOpen flag handles display
           workTime:        run.workMinutes || 0,
           fuelConsumption: idx === 0 ? (a.fuelConsumption ?? null) : null,
           isOpen:          run.isOpen,
+          isCarryover:     run.isCarryover || false,
         });
       });
     }

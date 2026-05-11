@@ -82,12 +82,18 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
 
         const combined = results.flatMap(r => {
           if (r.status !== 'fulfilled') return [];
-          const d = r.value;
-          return Array.isArray(d?.fuelSeries) ? d.fuelSeries : [];
+          return Array.isArray(r.value?.fuelSeries) ? r.value.fuelSeries : [];
         });
 
         // Sort chronologically
         combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+        // Sum refuels from the backend's multi-layer detection (summary.totalRefueled),
+        // not from raw rises — the backend already filters noise, recovery artefacts, etc.
+        const refuelAmount = results.reduce((sum, r) => {
+          if (r.status !== 'fulfilled') return sum;
+          return sum + (r.value?.summary?.totalRefueled || 0);
+        }, 0);
 
         if (combined.length > 0) {
           setFuelData(combined);
@@ -96,12 +102,6 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
           const maxLevel = Math.max(...levels);
           const minLevel = Math.min(...levels);
           const currentLevel = levels[levels.length - 1] || 0;
-
-          let refuelAmount = 0;
-          for (let i = 1; i < combined.length; i++) {
-            const rise = (combined[i].fuel || 0) - (combined[i - 1].fuel || 0);
-            if (rise > 5) refuelAmount += rise;
-          }
 
           setStats({
             currentLevel,

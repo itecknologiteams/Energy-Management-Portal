@@ -320,6 +320,8 @@ async function getVehicleFuelDebug(req, res, next) {
       latestRow: latestRow ? {
         timestamp: latestRow.timestamp,
         battery: latestRow.battery,
+        backupBattery: latestRow.backupBattery,
+        powerVolt: latestRow.powerVolt,
         fuelLevel: latestRow.fuelLevel,
         params: latestRow.params,
       } : null,
@@ -413,31 +415,26 @@ async function getVehicleFuelSeries(req, res, next) {
     const {
       buildFuelIgnitionSeries,
       smoothFuelIgnitionSeries,
-      calculateFuelRefilled,
-      calculateFuelConsumption,
+      detectFuelEvents,
     } = require('../services/analyticsService');
 
     // Build fuel series
-    const { series: rawSeries } = buildFuelIgnitionSeries(
+    const { series: rawSeries, powerEvents } = buildFuelIgnitionSeries(
       trackingRows, fuelCalibration, fuelSensorKey, calibrationMaxX
     );
 
-    // Get smoothed series for refuel detection
+    // Get smoothed series
     const smoothed = smoothFuelIgnitionSeries(rawSeries);
 
-    // Calculate refuel events
-    const refuelEvents = [];
-    for (let i = 0; i < smoothed.length - 1; i++) {
-      const rise = smoothed[i + 1].fuel - smoothed[i].fuel;
-      if (rise >= 10) { // FUEL_REFILL_MIN_CHANGE
-        refuelEvents.push({
-          timestamp: smoothed[i + 1].timestamp,
-          amount: Math.round(rise * 100) / 100,
-          fuelBefore: Math.round(smoothed[i].fuel * 100) / 100,
-          fuelAfter: Math.round(smoothed[i + 1].fuel * 100) / 100,
-        });
-      }
-    }
+    // Use the same multi-layer detection algorithm as calculateVehicleAnalytics
+    // to avoid counting noise spikes, recovery rises, and post-run battery artefacts.
+    const { refuels } = detectFuelEvents(rawSeries, smoothed, null, powerEvents);
+    const refuelEvents = refuels.map(r => ({
+      timestamp: r.at,
+      amount:    Math.round(r.added    * 100) / 100,
+      fuelBefore: Math.round(r.before  * 100) / 100,
+      fuelAfter:  Math.round(r.after   * 100) / 100,
+    }));
 
     // Format series for graphing (raw data points)
     const fuelSeries = rawSeries.map((point) => ({

@@ -157,16 +157,25 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     ? refuels.filter((r) => new Date(r.at) < lastIgnTime).reduce((s, r) => s + r.added, 0)
     : totalRefueled;
 
+  // Compute runs first — phantom carryover days return an empty array.
+  // If there are no qualifying runs, the generator did not run on this day
+  // and fuel consumption must be 0 (avoids attributing cross-midnight fuel
+  // delta on stuck-ignition days to the period total).
+  const generatorRuns = calculateGeneratorRunIntervals(trackingRows);
+  const fuelConsumption = generatorRuns.length > 0
+    ? calculateFuelConsumption(daySmoothed, consumptionRefueled, preferredFuelPoints, batteryFallbackPoints)
+    : 0;
+
   return {
     batteryHealth:      calculateBatteryHealth(trackingRows),
-    fuelConsumption:    calculateFuelConsumption(daySmoothed, consumptionRefueled, preferredFuelPoints, batteryFallbackPoints),
+    fuelConsumption,
     totalEngineHours:   calculateTotalEngineHours(trackingRows),
     fuelRefilled:       round(totalRefueled, 2) || 0,
     fuelTheft:          round(totalTheft, 2) || 0,
     fuelTheftAt,
     generatorStartTime: calculateGeneratorStartTime(trackingRows),
     generatorStopTime:  calculateGeneratorStopTime(trackingRows),
-    generatorRuns:      calculateGeneratorRunIntervals(trackingRows),
+    generatorRuns,
     workTime:           calculateWorkTime(trackingRows),
     fuel:               getFinalFuelValue(rawSeries),
   };
@@ -923,31 +932,39 @@ function getParamValue(paramsObj, key) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * 1. BATTERY HEALTH
+ * 1. BATTERY HEALTH — returns the MAIN supply voltage in mV.
  *
  * Priority:
- *  a) BackupBattery column  — GPS device internal Li-Po battery (mV)
- *  b) Params["67"]          — same, reported in V → × 1000 → mV
- *  c) Params["66"]          — vehicle/generator battery in V → × 1000 → mV
+ *  a) Params["66"]   — vehicle/generator battery in V → × 1000 → mV
+ *  b) PowerVolt column — dedicated external supply voltage field in mV
+ *     (covers 12V systems: 9000–18000 and 24V systems: up to 30000)
+ *  c) Battery column — only when it reads in the 9–30 V range (9000–30000 mV),
+ *     indicating the device is reporting external supply voltage rather than
+ *     fuel ADC (fuel ADC devices stay below 5000).
  *
- * Note: Battery/PowerVolt columns store the fuel ADC for this device family.
+ * BackupBattery (GPS internal Li-Po ~3.7–4.2 V) is intentionally excluded —
+ * it is not the generator/vehicle main battery the user cares about.
  *
  * @param {Array} rows - raw tracking rows
- * @returns {number|null} Battery level in mV
+ * @returns {number|null} Main battery voltage in mV, or null if not available
  */
 function calculateBatteryHealth(rows) {
   if (rows.length === 0) return null;
   const last = rows[rows.length - 1];
 
-  const bb = parseNumeric(last.backupBattery);
-  if (bb !== null) return round(bb, 0);
-
   const params = parseParams(last.params);
-  const b67 = getParamValue(params, '67');
-  if (b67 !== null) return round(b67 * 1000, 0);
-
   const b66 = getParamValue(params, '66');
   if (b66 !== null) return round(b66 * 1000, 0);
+
+  const powerVoltRaw = parseNumeric(last.powerVolt);
+  if (powerVoltRaw !== null && powerVoltRaw >= 9000 && powerVoltRaw <= 30000) {
+    return round(powerVoltRaw, 0);
+  }
+
+  const batRaw = parseNumeric(last.battery);
+  if (batRaw !== null && batRaw >= 9000 && batRaw <= 30000) {
+    return round(batRaw, 0);
+  }
 
   return null;
 }
@@ -1032,17 +1049,15 @@ function calculateGeneratorStartTime(rows) {
   if (rows.length === 0) return null;
   const transitions = detectIgnitionTransitions(rows);
 
-  // No transitions at all — check if device was ON the whole day
-  if (transitions.length === 0) {
-    const state = effectiveIgnition(rows[0]);
-    return state === 1 ? new Date(rows[0].timestamp).toISOString() : null;
-  }
+  // No transitions: phantom carryover day → no real start time.
+  if (transitions.length === 0) return null;
 
   // Use the first interval that meets the minimum-duration threshold.
   // Ignoring sub-threshold blips prevents a 2-second noise event at midnight
   // from being shown as the "start time" of a run that happened at noon.
-  const intervals = buildOnIntervalsFromIgnition(rows, transitions);
-  const first = intervals.find((iv) => iv.durationMinutes >= MIN_VALID_RUNNING_MINUTES);
+  const allIntervals = buildOnIntervalsFromIgnition(rows, transitions);
+  const filtered = filterPhantomIntervals(allIntervals, transitions);
+  const first = filtered.find((iv) => iv.durationMinutes >= MIN_VALID_RUNNING_MINUTES);
   return first ? first.start.toISOString() : null;
 }
 
@@ -1057,13 +1072,12 @@ function calculateGeneratorStopTime(rows) {
   const transitions = detectIgnitionTransitions(rows);
   if (transitions.length === 0) return null;
 
-  const intervals = buildOnIntervalsFromIgnition(rows, transitions);
-  const valid = intervals.filter((iv) => iv.durationMinutes >= MIN_VALID_RUNNING_MINUTES);
+  const allIntervals = buildOnIntervalsFromIgnition(rows, transitions);
+  const filtered = filterPhantomIntervals(allIntervals, transitions);
+  const valid = filtered.filter((iv) => iv.durationMinutes >= MIN_VALID_RUNNING_MINUTES);
   if (valid.length === 0) return null;
 
   const last = valid[valid.length - 1];
-  // An open interval (generator still running) ends at the final tracking row.
-  // In that case there is no confirmed stop, so return null.
   const lastRowMs = new Date(rows[rows.length - 1].timestamp).getTime();
   if (Math.abs(last.end.getTime() - lastRowMs) < 1000) return null;
   return last.end.toISOString();
@@ -1084,15 +1098,17 @@ function calculateGeneratorRunIntervals(rows) {
   if (rows.length === 0) return [];
   const transitions = detectIgnitionTransitions(rows);
   const allIntervals = buildOnIntervalsFromIgnition(rows, transitions);
-  const qualifying = allIntervals.filter((iv) => iv.durationMinutes >= MIN_VALID_RUNNING_MINUTES);
+  const filtered   = filterPhantomIntervals(allIntervals, transitions);
+  const qualifying = filtered.filter((iv) => iv.durationMinutes >= MIN_VALID_RUNNING_MINUTES);
   if (qualifying.length === 0) return [];
 
   const lastRowMs = new Date(rows[rows.length - 1].timestamp).getTime();
 
   return qualifying.map((iv) => ({
     start:       iv.start.toISOString(),
-    stop:        iv.end.toISOString(),   // always a real timestamp
-    isOpen:      Math.abs(iv.end.getTime() - lastRowMs) < 1000, // true = no confirmed OFF
+    stop:        iv.end.toISOString(),
+    isOpen:      Math.abs(iv.end.getTime() - lastRowMs) < 1000,
+    isCarryover: iv.startsAtDayBegin === true, // run inherited from previous day
     workMinutes: round(iv.durationMinutes, 1),
   }));
 }
@@ -1108,17 +1124,14 @@ function calculateWorkTime(rows) {
 
   const transitions = detectIgnitionTransitions(rows);
 
-  if (transitions.length === 0) {
-    const state = effectiveIgnition(rows[0]);
-    if (state === 1) {
-      const dur = new Date(rows[rows.length - 1].timestamp) - new Date(rows[0].timestamp);
-      return round(dur / (1000 * 60), 1);
-    }
-    return 0;
-  }
+  // No transitions: if ignition started ON it is a phantom carryover from the
+  // previous day (filterPhantomIntervals removes it). Report 0 so the all-day
+  // stuck-ignition signal does not inflate the work-time total.
+  if (transitions.length === 0) return 0;
 
-  const intervals = buildOnIntervalsFromIgnition(rows, transitions);
-  return round(sumIntervals(intervals, MIN_VALID_RUNNING_MINUTES), 1);
+  const allIntervals = buildOnIntervalsFromIgnition(rows, transitions);
+  const filtered = filterPhantomIntervals(allIntervals, transitions);
+  return round(sumIntervals(filtered, MIN_VALID_RUNNING_MINUTES), 1);
 }
 
 /**
@@ -1159,24 +1172,42 @@ function buildOnIntervalsFromIgnition(rows, transitions) {
   const initial = effectiveIgnition(rows[0]);
   let isOn = initial === 1;
   let start = isOn ? new Date(rows[0].timestamp) : null;
+  // Track whether this interval started from the inherited day-begin state
+  // (no preceding OFF→ON transition seen in this day's data).
+  let startsAtDayBegin = isOn;
 
   for (const t of transitions) {
     if (t.from === 0 && t.to === 1) {
       isOn = true; start = t.timestamp;
+      startsAtDayBegin = false; // real ON transition observed in this day
     } else if (t.from === 1 && t.to === 0) {
       if (start !== null) {
-        intervals.push({ start, end: t.timestamp, durationMinutes: (t.timestamp - start) / 60000 });
+        intervals.push({ start, end: t.timestamp, durationMinutes: (t.timestamp - start) / 60000, startsAtDayBegin });
       }
-      isOn = false; start = null;
+      isOn = false; start = null; startsAtDayBegin = false;
     }
   }
 
   if (isOn && start !== null) {
     const last = new Date(rows[rows.length - 1].timestamp);
-    intervals.push({ start, end: last, durationMinutes: (last - start) / 60000 });
+    intervals.push({ start, end: last, durationMinutes: (last - start) / 60000, startsAtDayBegin });
   }
 
   return intervals;
+}
+
+/**
+ * Remove phantom "stuck-ignition" intervals: an interval that inherited
+ * ignition=1 from a previous day AND had zero transitions during the queried
+ * day is almost certainly a stale carry-over signal, not a real run.
+ * (Genuine cross-midnight runs that actually stop on this day will have at
+ * least one 1→0 transition, so they survive this filter.)
+ */
+function filterPhantomIntervals(allIntervals, transitions) {
+  if (allIntervals.length === 1 && allIntervals[0].startsAtDayBegin && transitions.length === 0) {
+    return [];
+  }
+  return allIntervals;
 }
 
 function sumIntervals(intervals, minMinutes) {
@@ -1251,6 +1282,7 @@ module.exports = {
   extractFuelSeries,
   detectIgnitionTransitions,
   buildOnIntervalsFromIgnition,
+  filterPhantomIntervals,
   sumIntervals,
   // New multi-layer detection exports (for testing)
   detectFuelEvents,

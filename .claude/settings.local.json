@@ -4,7 +4,12 @@
       "Skill(code-review:code-review)",
       "PowerShell(gh pr list --json number,title,state,isDraft,author)",
       "PowerShell(Get-Command *)",
-      "PowerShell(gh pr list --json number,title,state,isDraft,author 2>&1)"
+      "PowerShell(gh pr list --json number,title,state,isDraft,author 2>&1)",
+      "Bash(curl -s \"http://localhost:3010/api/fleets/1/vehicles\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"http://localhost:3010/api/vehicles/375606/raw-sensors?date=2026-05-11\")",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s \"http://localhost:3010/api/vehicles/375606/analytics?date=2026-05-10\")"
     ]
   }
 }

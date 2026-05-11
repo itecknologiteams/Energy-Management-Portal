@@ -182,7 +182,7 @@ function DailyRunTimeline({ runs, startTimeFormatted, stopTimeFormatted }) {
           // where the data window ended while running show the last known time.
           const todayStr = new Date().toISOString().split('T')[0];
           const isLive   = !!run.isOpen && run.date === todayStr;
-          const start    = run.startTime ? fmt(run.startTime) : '–';
+          const start    = run.isCarryover ? '←' : run.startTime ? fmt(run.startTime) : '–';
           const stop     = isLive ? 'Still running' : run.stopTime ? fmt(run.stopTime) : '–';
           const workMins = run.workTime || 0;
           const dur      = workMins >= 60
@@ -194,7 +194,7 @@ function DailyRunTimeline({ runs, startTimeFormatted, stopTimeFormatted }) {
           // Detect when the session crosses local (PKT) midnight — stop is on a
           // different calendar day than start. Without this indicator the display
           // shows e.g. "06:13 AM – 01:31 AM" which looks reversed.
-          const crossesMidnight = !isLive && run.startTime && run.stopTime && run.stopTime !== run.startTime && (() => {
+          const crossesMidnight = !isLive && !run.isCarryover && run.startTime && run.stopTime && run.stopTime !== run.startTime && (() => {
             const startDay = new Date(run.startTime).toLocaleDateString('en-US', { timeZone: 'UTC' });
             const stopDay  = new Date(run.stopTime).toLocaleDateString('en-US', { timeZone: 'UTC' });
             return startDay !== stopDay;
@@ -206,12 +206,21 @@ function DailyRunTimeline({ runs, startTimeFormatted, stopTimeFormatted }) {
               <div className={`relative z-10 w-3 h-3 rounded-full border-2 flex-shrink-0 mt-1.5 ${
                 isLive
                   ? 'bg-emerald-500 border-emerald-300 shadow-sm shadow-emerald-200'
-                  : 'bg-white border-gray-300'
+                  : run.isCarryover
+                    ? 'bg-blue-100 border-blue-300'
+                    : 'bg-white border-gray-300'
               }`} />
 
               <div className="flex-1 min-w-0 pb-1">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium text-gray-700">{dateLabel}</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-sm font-medium text-gray-700">{dateLabel}</span>
+                    {run.isCarryover && (
+                      <span className="text-[10px] font-medium text-blue-500 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-full leading-none flex-shrink-0" title="Run started before this day">
+                        cont.
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
                     {fuelL != null && (
                       <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-50 text-orange-600 border border-orange-100">
@@ -245,7 +254,7 @@ function DailyRunTimeline({ runs, startTimeFormatted, stopTimeFormatted }) {
                 {run.batteryHealth != null && (
                   <p className="text-[11px] text-gray-400 mt-0.5">
                     <span className="font-medium text-gray-500">Battery:</span>{' '}
-                    {run.batteryHealth} mV
+                    {run.batteryHealth >= 1000 ? `${(run.batteryHealth / 1000).toFixed(1)} V` : `${run.batteryHealth} mV`}
                   </p>
                 )}
               </div>
@@ -362,7 +371,11 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
     ? (typeof item.fuelLevel === 'number' ? `${item.fuelLevel} L` : item.fuelLevel)
     : '—';
   const batteryDisplay = item.batteryHealth != null && item.batteryHealth !== '-'
-    ? (typeof item.batteryHealth === 'number' ? `${item.batteryHealth} mV` : item.batteryHealth)
+    ? (typeof item.batteryHealth === 'number'
+        ? item.batteryHealth >= 1000
+          ? `${(item.batteryHealth / 1000).toFixed(1)} V`
+          : `${item.batteryHealth} mV`
+        : item.batteryHealth)
     : '—';
 
   const hasDailyRuns = Array.isArray(item.dailyRuns) && item.dailyRuns.length > 0;
