@@ -100,7 +100,7 @@ async function getFleetVehiclesWithSensors(fleetId) {
           vehicleName,
           sensors: {
             ...sensors,
-            fuelChartExcluded: NO_FUEL_SENSOR_VEHICLE_IDS.includes(vehicleId),
+            fuelChartExcluded: NO_FUEL_SENSOR_VEHICLE_IDS.includes(parseInt(vehicleId, 10)),
           },
         };
       } catch (err) {

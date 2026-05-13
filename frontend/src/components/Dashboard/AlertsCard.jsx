@@ -4,6 +4,8 @@ const AlertsCard = ({ alerts: apiAlerts }) => {
   // Use API alerts only - no mock data
   const alerts = apiAlerts || [];
 
+  if (alerts.length === 0) return null;
+
   return (
     <div className="alerts-card">
       <div className="card-header">

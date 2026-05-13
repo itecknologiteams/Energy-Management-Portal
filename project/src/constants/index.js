@@ -72,8 +72,7 @@ const DEFAULT_SENSOR_KEYS = {
 // Battery column on these devices carries device supply voltage, not fuel ADC.
 // Removing them here avoids a DB schema change while keeping the chart clean.
 const NO_FUEL_SENSOR_VEHICLE_IDS = [
-  375742, // VEHARI ROAD D/S   — sensor configured but probe not installed
-  375957, // INNER BYE PASS D/S — Battery column is 12 V supply, not fuel ADC
+  375957, // INNER BYE PASS D/S — Battery column is 12 V supply (io9=12105 mV), not fuel ADC
 ];
 
 // ─── Environment & Debugging ────────────────────────────────────────────────

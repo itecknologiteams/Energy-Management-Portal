@@ -424,8 +424,8 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
           {/* Metric chips — hidden on small screens */}
           <div className="hidden sm:flex items-center gap-2 flex-1 justify-end flex-wrap">
             <MetricChip icon={Clock}    label="Work Time"  value={item.hours || `${workHrs} hrs`} />
-            <MetricChip icon={Fuel}     label="Fuel Used"  value={item.fuelUsed || `${item.fuelConsumption || 0} L`} />
-            <MetricChip icon={Droplets} label="Fuel Level" value={fuelLevelDisplay} />
+            {!item.noFuelSensor && <MetricChip icon={Fuel}     label="Fuel Used"  value={item.fuelUsed || (item.fuelConsumption != null ? `${item.fuelConsumption} L` : '—')} />}
+            {!item.noFuelSensor && <MetricChip icon={Droplets} label="Fuel Level" value={fuelLevelDisplay} />}
             <MetricChip icon={Battery}  label="Battery"    value={batteryDisplay} />
             {theft > 0 && (
               <MetricChip icon={ShieldAlert} label="Theft"
@@ -443,7 +443,7 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
         {/* Mobile-only metric row */}
         <div className="flex sm:hidden items-center gap-2 px-4 pb-3 flex-wrap">
           <MetricChip icon={Clock}    label="Work"    value={item.hours || `${workHrs} hrs`} />
-          <MetricChip icon={Droplets} label="Fuel"    value={fuelLevelDisplay} />
+          {!item.noFuelSensor && <MetricChip icon={Droplets} label="Fuel" value={fuelLevelDisplay} />}
           <MetricChip icon={Battery}  label="Battery" value={batteryDisplay} />
           {theft > 0 && (
             <MetricChip icon={ShieldAlert} label="Theft"

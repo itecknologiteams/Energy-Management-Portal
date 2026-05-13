@@ -1,7 +1,10 @@
 import React from 'react';
 
 const KPICards = ({ data, filter }) => {
-  const periodLabel = filter === 'This Week' ? 'This week' : filter === 'This Month' ? 'This month' : 'Today';
+  const periodLabel = filter === 'This Week' ? 'This week'
+    : filter === 'This Month' ? 'This month'
+    : filter === 'Last Month' ? 'Last month'
+    : 'Today';
 
   const kpiData = [
     {

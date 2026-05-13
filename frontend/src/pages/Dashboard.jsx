@@ -81,6 +81,13 @@ const Dashboard = ({ onNavigate }) => {
           filterEnd = todayStr;
           setSelectedDate(todayStr);
           data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
+        } else if (filter === 'Last Month') {
+          const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+          const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0); // last day of prev month
+          filterStart = toLocalDateStr(lastMonthStart);
+          filterEnd = toLocalDateStr(lastMonthEnd);
+          setSelectedDate(filterEnd);
+          data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
         }
 
         setFilterDateRange({ start: filterStart, end: filterEnd });
@@ -151,12 +158,73 @@ const Dashboard = ({ onNavigate }) => {
     }, 3000);
   };
 
-  const handleExport = async () => {
-    showNotification('Exporting report... Please wait.');
-    
+  const handleExport = () => {
     try {
-      // In a real app, this would generate and download a CSV/Excel file
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      if (!dashboardData) {
+        showNotification('No data to export', 'error');
+        return;
+      }
+
+      const kpi    = dashboardData.kpi    || {};
+      const vehicles = dashboardData.vehicles || [];
+
+      const periodLabel = filter === 'This Week'  ? 'This Week'
+                        : filter === 'This Month' ? 'This Month'
+                        : filter === 'Last Month' ? 'Last Month'
+                        : 'Today';
+
+      const rows = [];
+
+      // ── Summary section ──────────────────────────────────────────────────────
+      rows.push(['FLEET FUEL CONSUMPTION REPORT']);
+      rows.push([`Period: ${periodLabel}`, `Date Range: ${filterDateRange.start} to ${filterDateRange.end}`]);
+      rows.push([]);
+      rows.push(['SUMMARY']);
+      rows.push(['Total Fuel Consumed (L)', 'Total Work Time (hrs)', 'Active Generators', 'Total Generators', 'Avg Battery Health (V)']);
+      rows.push([
+        kpi.totalFuelConsumed?.toFixed(2)  ?? '0.00',
+        kpi.totalWorkTime?.toFixed(1)       ?? '0.0',
+        kpi.activeVehicles                  ?? 0,
+        kpi.totalVehicles                   ?? 0,
+        kpi.batteryHealth != null ? (kpi.batteryHealth / 1000).toFixed(2) : '—',
+      ]);
+      rows.push([]);
+
+      // ── Per-generator section ─────────────────────────────────────────────────
+      rows.push(['GENERATOR BREAKDOWN']);
+      rows.push(['Generator Name', 'Status', 'Fuel Consumed (L)', 'Work Time (hrs)', 'Fuel Level (L)', 'Battery (V)', 'Fuel Refilled (L)', 'Fuel Theft (L)']);
+
+      vehicles.forEach(v => {
+        rows.push([
+          v.name,
+          v.status,
+          v.fuelConsumption != null ? Number(v.fuelConsumption).toFixed(2) : '—',
+          v.workTimeHours   != null ? Number(v.workTimeHours).toFixed(1)   : '0.0',
+          v.fuelLevel != null && v.fuelLevel !== '-' ? Number(v.fuelLevel).toFixed(1) : '—',
+          v.batteryHealth   != null ? (v.batteryHealth / 1000).toFixed(2)  : '—',
+          v.fuelRefilled    != null ? Number(v.fuelRefilled).toFixed(2)    : '—',
+          v.fuelTheft       != null ? Number(v.fuelTheft).toFixed(2)       : '—',
+        ]);
+      });
+
+      // ── Convert to CSV ────────────────────────────────────────────────────────
+      const csv = rows.map(row =>
+        row.map(cell => {
+          const s = String(cell ?? '');
+          return s.includes(',') || s.includes('"') || s.includes('\n')
+            ? `"${s.replace(/"/g, '""')}"`
+            : s;
+        }).join(',')
+      ).join('\r\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `fleet-report-${periodLabel.replace(/\s+/g, '-').toLowerCase()}-${filterDateRange.start}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
       showNotification('Report downloaded successfully!');
     } catch (err) {
       showNotification('Export failed: ' + err.message, 'error');

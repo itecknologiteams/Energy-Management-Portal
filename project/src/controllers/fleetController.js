@@ -276,7 +276,7 @@ async function getVehicleFuelDebug(req, res, next) {
           const params = JSON.parse(latestRow.params);
           const pv = params[fuelSensorKey];
           if (pv !== null && pv !== undefined) {
-            rawFuelValue = parseFloat(pv);
+            rawFuelValue = normalizeFuelDebug(parseFloat(pv), calibrationMaxX);
             fuelSource = `Params[io${fuelSensorKey}]`;
           }
         } catch { /* ignore */ }
@@ -288,7 +288,7 @@ async function getVehicleFuelDebug(req, res, next) {
           const params = JSON.parse(latestRow.params);
           const p327 = params['327'];
           if (p327 !== null && p327 !== undefined) {
-            rawFuelValue = parseFloat(p327);
+            rawFuelValue = normalizeFuelDebug(parseFloat(p327), calibrationMaxX);
             fuelSource = 'Params[io327]';
           }
         } catch { /* ignore */ }
@@ -297,10 +297,13 @@ async function getVehicleFuelDebug(req, res, next) {
       // 4. Battery column (if within calibration range or default guard)
       if (rawFuelValue === null && latestRow.battery !== null && latestRow.battery !== undefined) {
         const batRaw = parseFloat(latestRow.battery);
-        const maxAllowed = fuelCalibration ? calibrationMaxX * 2.0 : 15000; // allow extrapolation beyond calibration
-        if (!isNaN(batRaw) && batRaw <= maxAllowed && batRaw >= 0) {
-          rawFuelValue = batRaw;
-          fuelSource = 'Battery column (ADC)';
+        if (!isNaN(batRaw)) {
+          const normalized = normalizeFuelDebug(batRaw, calibrationMaxX);
+          const maxAllowed = fuelCalibration ? calibrationMaxX * 1.1 : 15000;
+          if (normalized >= 0 && normalized <= maxAllowed) {
+            rawFuelValue = normalized;
+            fuelSource = 'Battery column (ADC)';
+          }
         }
       }
 
@@ -356,6 +359,23 @@ function applyCalibrationDebug(rawValue, calibrationPoints) {
       const ratio = (rawValue - sorted[i].x) / (sorted[i + 1].x - sorted[i].x);
       return sorted[i].y + ratio * (sorted[i + 1].y - sorted[i].y);
     }
+  }
+  return rawValue;
+}
+
+/**
+ * Normalize raw fuel ADC from mV → V when calibration uses volts.
+ * Mirrors normalizeFuelRaw() in analyticsService.js.
+ */
+function normalizeFuelDebug(rawValue, calibrationMaxX) {
+  if (
+    calibrationMaxX != null &&
+    calibrationMaxX !== Infinity &&
+    calibrationMaxX <= 20 &&
+    rawValue > calibrationMaxX * 2 &&
+    rawValue / 1000 <= calibrationMaxX * 1.5
+  ) {
+    return rawValue / 1000;
   }
   return rawValue;
 }

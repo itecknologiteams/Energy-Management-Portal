@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
-  const filters = ['Today', 'This Week', 'This Month'];
+  const filters = ['Today', 'This Week', 'This Month', 'Last Month'];
   const { user, fleetId } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
   const notificationRef = useRef(null);

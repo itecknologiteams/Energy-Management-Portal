@@ -281,7 +281,11 @@ export const getDashboardData = async (fleetId = 1735, date) => {
     });
 
     // Calculate aggregate metrics from the analytics data
-    const vehicles = fleetAnalytics.vehicles || [];
+    // Filter out vehicles with no physical fuel sensor (fuelChartExcluded)
+    const vehicles = (fleetAnalytics.vehicles || []).filter(v => {
+      const sensors = sensorsMap.get(String(v.vehicleId)) || {};
+      return !sensors.fuelChartExcluded;
+    });
     const totalFuelConsumed = vehicles.reduce((sum, v) => sum + (v.analytics?.fuelConsumption || 0), 0);
     const totalWorkTime = vehicles.reduce((sum, v) => sum + (v.analytics?.workTime || 0), 0);
     const activeVehicles = vehicles.filter(v => (v.analytics?.workTime || 0) > 0).length;
@@ -493,12 +497,18 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
   const sensorsMap = new Map();
   fleetVehicles.vehicles?.forEach(v => sensorsMap.set(String(v.vehicleId), v.sensors));
 
-  const totalFuelConsumed = aggregated.reduce((s, v) => s + (v.analytics?.fuelConsumption || 0), 0);
-  const totalWorkTime     = aggregated.reduce((s, v) => s + (v.analytics?.workTime        || 0), 0);
-  const activeVehicles    = aggregated.filter(v => (v.analytics?.workTime || 0) > 0).length;
-  const totalFuelTheft    = aggregated.reduce((s, v) => s + (v.analytics?.fuelTheft       || 0), 0);
+  // Filter out vehicles with no physical fuel sensor (fuelChartExcluded)
+  const filteredAggregated = aggregated.filter(v => {
+    const sensors = sensorsMap.get(String(v.vehicleId)) || {};
+    return !sensors.fuelChartExcluded;
+  });
 
-  const transformedVehicles = aggregated.map(v => {
+  const totalFuelConsumed = filteredAggregated.reduce((s, v) => s + (v.analytics?.fuelConsumption || 0), 0);
+  const totalWorkTime     = filteredAggregated.reduce((s, v) => s + (v.analytics?.workTime        || 0), 0);
+  const activeVehicles    = filteredAggregated.filter(v => (v.analytics?.workTime || 0) > 0).length;
+  const totalFuelTheft    = filteredAggregated.reduce((s, v) => s + (v.analytics?.fuelTheft       || 0), 0);
+
+  const transformedVehicles = filteredAggregated.map(v => {
     const sensors   = sensorsMap.get(v.vehicleId?.toString()) || {};
     const analytics = v.analytics || {};
 
@@ -544,9 +554,9 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       totalFuelTheft,
       activeVehicles,
       totalWorkTime: Math.round(totalWorkTime / 60 * 10) / 10,
-      totalVehicles: aggregated.length,
+      totalVehicles: filteredAggregated.length,
       batteryHealth: (() => {
-        const withBatt = aggregated.filter(v => v.analytics?.batteryHealth != null && v.analytics.batteryHealth > 0);
+        const withBatt = filteredAggregated.filter(v => v.analytics?.batteryHealth != null && v.analytics.batteryHealth > 0);
         return withBatt.length > 0
           ? Math.round(withBatt.reduce((s, v) => s + v.analytics.batteryHealth, 0) / withBatt.length)
           : null;
@@ -554,14 +564,14 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
     },
     vehicles:        transformedVehicles,
     fuelTrend:       buildRangeTrendData(validDays, dates),
-    vehicleFuelData: aggregated.map(v => ({
+    vehicleFuelData: filteredAggregated.map(v => ({
       name:         v.vehicleName || `Generator-${v.vehicleId?.toString().slice(-3)}`,
       fuelConsumed: v.analytics?.fuelConsumption || 0,
       fuelLevel:    v.analytics?.fuel            || 0,
       workTime:     v.analytics?.workTime        || 0,
     })),
-    alerts: generateAlerts(aggregated),
-    raw: { success: true, fleetId: validatedFleetId, date: endDate, vehicles: aggregated },
+    alerts: generateAlerts(filteredAggregated),
+    raw: { success: true, fleetId: validatedFleetId, date: endDate, vehicles: filteredAggregated },
   };
 };
 
