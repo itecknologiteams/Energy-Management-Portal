@@ -1,7 +1,12 @@
 // API Service for Fleet Analytics Backend
 // Base URL configuration
-// const API_BASE_URL ="http://192.168.20.69:3010";
-const API_BASE_URL ="http://localhost:3010";
+// Resolved at runtime: REACT_APP_API_URL wins if set; otherwise the API is
+// assumed to run on port 3010 of whatever host is serving the frontend.
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL ||
+  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://localhost:3010"
+    : `${window.location.protocol}//${window.location.hostname}:3010`);
 
 // Custom Error Classes for different validation failures
 export class ValidationError extends Error {
