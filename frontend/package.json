@@ -2,6 +2,7 @@
   "name": "generator-fuel-tracker-react",
   "version": "1.0.0",
   "private": true,
+  "proxy": "http://localhost:3010",
   "dependencies": {
     "chart.js": "^4.4.1",
     "chartjs-adapter-date-fns": "^3.0.0",
