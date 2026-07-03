@@ -59,7 +59,7 @@ const MIN_VALID_FUEL_READING     = 10;   // L — discard ADC-near-zero garbage 
 const POST_RUN_GUARD_MINUTES     = 30;   // min — suppress theft if generator ran recently
 const MIN_RUN_DURATION_MS        = 60 * 1000; // ms — minimum ON period to count as a run
 const MIN_BACKUP_VOLT_MV         = 10;        // mV — treat ignition as OFF if backup battery ≤ this
-const BASELINE_LOOKBACK_MS       = 30 * 60 * 1000; // ms — window behind drop to scan for baseline support
+const BASELINE_LOOKBACK_MS       = 60 * 60 * 1000; // ms — window behind drop to scan for baseline support (wide enough for devices that report every ~15 min, not just dense ones)
 const MIN_BASELINE_SUSTAINED_MS  = 20 * 60 * 1000; // ms — baseline must be present for this long to be real
 const MIN_LOGGED_RUN_CONSUMPTION = 5;    // L — minimum per-run drop worth surfacing as a "Fuel Used" log entry
 const RUN_MERGE_GAP_MS = 10 * 60 * 1000; // ms — runs this close together are treated as one session for consumption reporting
@@ -641,6 +641,37 @@ function isPostDropRecovery(filtered, dropTime, baseline) {
 const RUNNING_DROP_LOOKBACK_MS = 90 * 60 * 1000; // ms — how far back to look for the true pre-drop baseline
 const RUNNING_DROP_FORWARD_MS  = 60 * 60 * 1000; // ms — how far forward to look for the episode's lowest point
 const RUNNING_DROP_EPISODE_TOLERANCE = 15; // L — sensor jitter tolerance while walking through one episode
+const RESTORE_SEARCH_MS = RUNNING_DROP_FORWARD_MS * 3; // ms — how far forward to look for a drop being genuinely restored
+
+/**
+ * Scans forward from `fromTime` for fuel returning to within
+ * RUNNING_DROP_EPISODE_TOLERANCE of `targetBaseline`, and if so, the true
+ * peak actually reached (not just the first close-enough sample) within the
+ * search window. Used both to reclassify a drop that "recovered" (so the
+ * strict theft glitch-guards would reject it) as a genuine restore instead
+ * of silently discarding it, and to find the matching refuel amount.
+ *
+ * @param {Array<{timestamp:Date,fuel:number}>} filtered
+ * @param {Date} fromTime
+ * @param {number} targetBaseline
+ * @returns {{ recovered:boolean, peakFuel:number|null, peakTime:Date|null }}
+ */
+function findRestorePeak(filtered, fromTime, targetBaseline) {
+  const searchEnd = new Date(fromTime.getTime() + RESTORE_SEARCH_MS);
+  let recovered = false;
+  let peakFuel  = null;
+  let peakTime  = null;
+  for (const pt of filtered) {
+    if (pt.timestamp <= fromTime) continue;
+    if (pt.timestamp > searchEnd) break;
+    if (pt.fuel >= targetBaseline - RUNNING_DROP_EPISODE_TOLERANCE) recovered = true;
+    if (peakFuel === null || pt.fuel > peakFuel) {
+      peakFuel = pt.fuel;
+      peakTime = pt.timestamp;
+    }
+  }
+  return { recovered, peakFuel, peakTime };
+}
 
 /**
  * Merges a whole declining episode (while the generator is running) into one
@@ -908,22 +939,42 @@ function detectFuelEvents(raw, filtered, dayStart, powerEvents = []) {
       )) continue;
 
       if (isOff) {
-        // Layer 4a — still low after delay?
-        if (!isDropConfirmedAfterDelay(filtered, dropTime, baseline)) continue;
+        // Layers 4a/3a/4b exist to reject a drop that "recovered" — normally
+        // a sensor glitch bouncing back, not real theft. But a real fuel
+        // removal that's deliberately restored later (drain-then-refill
+        // test/maintenance, done while OFF) has the exact same signature on
+        // the fuel curve as a glitch. Rather than silently discard every
+        // drop that fails these guards, check independently whether fuel
+        // actually came back within a much wider window — if it did, this
+        // wasn't a momentary glitch (those bounce back in seconds, per
+        // isFakeSpike's own ±7 min window) and it's downgraded to a neutral
+        // "Drop" entry instead of "Theft", with the matching restore logged
+        // as a refuel below.
+        const failsGlitchGuards =
+          !isDropConfirmedAfterDelay(filtered, dropTime, baseline) ||
+          isFakeSpike(raw, dropTime) ||
+          isPostDropRecovery(filtered, dropTime, baseline);
 
-        // Layer 3a — sensor glitch check
-        if (isFakeSpike(raw, dropTime)) continue;
-
-        // Layer 4b — slow-recovering glitch check
-        if (isPostDropRecovery(filtered, dropTime, baseline)) continue;
-
-        theftDrops.push({
-          at:       dropTime.toISOString(),
-          before:   round(baseline, 2),
-          after:    round(verifiedFuel, 2),
-          consumed: round(totalConsumed, 2),
-        });
-        lastConfirmedDropTime = dropTime;
+        if (!failsGlitchGuards) {
+          theftDrops.push({
+            at:       dropTime.toISOString(),
+            before:   round(baseline, 2),
+            after:    round(verifiedFuel, 2),
+            consumed: round(totalConsumed, 2),
+          });
+          lastConfirmedDropTime = dropTime;
+        } else if (!lastRunningDropEnd || dropTime > lastRunningDropEnd) {
+          const restore = findRestorePeak(filtered, dropTime, baseline);
+          if (restore.recovered) {
+            runningDrops.push({
+              at:       dropTime.toISOString(),
+              before:   round(baseline, 2),
+              after:    round(verifiedFuel, 2),
+              consumed: round(totalConsumed, 2),
+            });
+            lastRunningDropEnd = restore.peakTime || dropTime;
+          }
+        }
       } else if (!lastRunningDropEnd || dropTime > lastRunningDropEnd) {
         // Drop while the generator is RUNNING. Not "theft" (that label is
         // reserved for unaccounted loss while OFF) and not normal gradual
@@ -1015,27 +1066,8 @@ function detectFuelEvents(raw, filtered, dayStart, powerEvents = []) {
   // small sub-threshold/sub-window steps that no single rise-detection
   // step captures on its own — the same fragmentation problem
   // consolidateRunningDrop solves for the drop side.
-  const RESTORE_SEARCH_MS = RUNNING_DROP_FORWARD_MS * 3;
   runningDrops.forEach((d) => {
-    const dropLowMs = new Date(d.at).getTime();
-    const searchEndMs = dropLowMs + RESTORE_SEARCH_MS;
-
-    // Scan the whole window (not stopping at the first point that merely
-    // crosses back within tolerance) so the reported "after" is the true
-    // peak actually reached, not just the first close-enough sample.
-    let recovered = false;
-    let peakFuel  = d.after;
-    let peakTime  = null;
-    for (const pt of filtered) {
-      const t = pt.timestamp.getTime();
-      if (t <= dropLowMs) continue;
-      if (t > searchEndMs) break;
-      if (pt.fuel >= d.before - RUNNING_DROP_EPISODE_TOLERANCE) recovered = true;
-      if (pt.fuel > peakFuel) {
-        peakFuel = pt.fuel;
-        peakTime = pt.timestamp;
-      }
-    }
+    const { recovered, peakFuel, peakTime } = findRestorePeak(filtered, new Date(d.at), d.before);
 
     if (recovered && peakTime) {
       const alreadyCaptured = refuels.some(
