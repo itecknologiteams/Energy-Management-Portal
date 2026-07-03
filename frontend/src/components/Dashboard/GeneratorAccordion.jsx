@@ -31,6 +31,7 @@ import {
   ShieldAlert,
   AlertTriangle,
   TrendingUp,
+  TrendingDown,
   Timer,
   Activity,
   MapPin,
@@ -275,8 +276,24 @@ function DailyRunTimeline({ runs, startTimeFormatted, stopTimeFormatted }) {
 
 // ─── Event cards ─────────────────────────────────────────────────────────────
 
-function RefillCard({ amount, date, filter }) {
-  const label = date || filter || 'Recorded';
+// Formats an ISO timestamp as the PKT wall-clock date/time it represents —
+// forcing timeZone:'UTC' recovers the original PKT value (the DB stores
+// PKT-naive datetimes that the UTC server reads back as UTC).
+function formatEventTime(at) {
+  if (!at) return null;
+  try {
+    return new Date(at).toLocaleString('en-PK', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: true,
+      timeZone: 'UTC',
+    });
+  } catch {
+    return null;
+  }
+}
+
+function RefillCard({ amount, at }) {
+  const when = formatEventTime(at);
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-50 border border-blue-100">
       <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
@@ -284,19 +301,14 @@ function RefillCard({ amount, date, filter }) {
       </div>
       <div>
         <p className="text-sm font-semibold text-blue-700">+{amount} L refilled</p>
-        <p className="text-xs text-blue-400 mt-0.5">{label}</p>
+        <p className="text-xs text-blue-400 mt-0.5">{when || 'Recorded'}</p>
       </div>
     </div>
   );
 }
 
 function TheftCard({ amount, at }) {
-  const when = at
-    ? new Date(at).toLocaleString('en-PK', {
-        day: '2-digit', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit', hour12: true,
-      })
-    : null;
+  const when = formatEventTime(at);
 
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-200">
@@ -307,6 +319,46 @@ function TheftCard({ amount, at }) {
         <p className="text-sm font-semibold text-red-700">{amount} L unaccounted loss</p>
         <p className="text-xs text-red-400 mt-0.5">
           {when ? `Detected ${when} — generator was OFF` : 'Detected while generator was OFF'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// A sizeable fuel drop while the generator was actually running — normal
+// consumption, not theft (theft only counts while OFF). Shown separately so
+// a drop visible on the chart's line isn't mistaken for "no data available."
+function ConsumptionCard({ amount, at }) {
+  const when = formatEventTime(at);
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+      <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+        <TrendingDown className="w-4 h-4 text-gray-600" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-gray-700">-{amount} L used</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {when ? `${when} — generator running` : 'While generator was running'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// A sizeable, abrupt drop while the generator was running — not "theft"
+// (reserved for unaccounted loss while OFF), but a real, dated drop worth
+// flagging (e.g. a manual fuel removal during testing/maintenance).
+function DropCard({ amount, at }) {
+  const when = formatEventTime(at);
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+        <AlertTriangle className="w-4 h-4 text-amber-600" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-amber-700">-{amount} L drop</p>
+        <p className="text-xs text-amber-500 mt-0.5">
+          {when ? `${when} — generator running` : 'While generator was running'}
         </p>
       </div>
     </div>
@@ -358,7 +410,7 @@ function ExpandPanel({ isOpen, children }) {
 
 // ─── Single accordion item ───────────────────────────────────────────────────
 
-function AccordionItem({ item, isOpen, onToggle, filter }) {
+function AccordionItem({ item, isOpen, onToggle }) {
   const s = getStatus(item.status);
 
   // Normalise numeric fields — the transformed shape may pass strings like "437 L"
@@ -369,7 +421,6 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
   };
 
   const theft    = parse(item.fuelTheftRaw ?? item.fuelTheft);
-  const refilled = parse(item.fuelRefilled);
   const engHrs   = item.engineHours ?? item.runningTime ?? 0;
   const workHrs  = item.workTimeHours ?? 0;
 
@@ -382,7 +433,10 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
     : '—';
 
   const hasDailyRuns = Array.isArray(item.dailyRuns) && item.dailyRuns.length > 0;
-  const hasEvents    = theft > 0 || refilled > 0;
+  const fuelEvents   = Array.isArray(item.fuelEvents)
+    ? [...item.fuelEvents].sort((a, b) => new Date(b.at) - new Date(a.at))
+    : [];
+  const hasEvents    = fuelEvents.length > 0;
 
   return (
     <div
@@ -473,14 +527,17 @@ function AccordionItem({ item, isOpen, onToggle, filter }) {
               {/* Fuel events */}
               {hasEvents && (
                 <div>
-                  <SectionLabel icon={CalendarDays} text="Events" color="text-gray-600" />
-                  <div className="space-y-2">
-                    {refilled > 0 && (
-                      <RefillCard amount={refilled} date={item.refillDate} filter={filter} />
-                    )}
-                    {theft > 0 && (
-                      <TheftCard amount={theft} at={item.fuelTheftAt} />
-                    )}
+                  <SectionLabel icon={CalendarDays} text={`Events (${fuelEvents.length})`} color="text-gray-600" />
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {fuelEvents.map((ev, idx) => (
+                      ev.type === 'theft'
+                        ? <TheftCard key={idx} amount={ev.amount} at={ev.at} />
+                        : ev.type === 'drop'
+                        ? <DropCard key={idx} amount={ev.amount} at={ev.at} />
+                        : ev.type === 'consumption'
+                        ? <ConsumptionCard key={idx} amount={ev.amount} at={ev.at} />
+                        : <RefillCard key={idx} amount={ev.amount} at={ev.at} />
+                    ))}
                   </div>
                 </div>
               )}

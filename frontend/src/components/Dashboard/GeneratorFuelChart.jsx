@@ -3,7 +3,76 @@ import { Chart, LineController, LineElement, PointElement, LinearScale, TimeScal
 import 'chartjs-adapter-date-fns';
 import { getVehicleFuelSeries } from '../../services/api';
 
-Chart.register(LineController, LineElement, PointElement, LinearScale, TimeScale, Tooltip, Legend, Filler);
+// Draws refuel (green ▲) / theft (red ▼) markers directly on the canvas at
+// their real timestamp/fuel-level position. A dataset-based approach (extra
+// Chart.js datasets padded with nulls to align indices) was tried first but
+// Chart.js silently marks those points `skip: true` even when the raw value
+// is valid — drawing them ourselves in afterDatasetsDraw sidesteps that
+// entirely and always renders regardless of dataset parsing quirks.
+const eventMarkersPlugin = {
+  id: 'eventMarkers',
+  afterDatasetsDraw(chart) {
+    const cfg = chart.options.plugins?.eventMarkers;
+    if (!cfg) return;
+    const { refuels = [], thefts = [], drops = [] } = cfg;
+    const { ctx, scales: { x, y } } = chart;
+
+    const drawTriangle = (px, py, color, pointsUp) => {
+      const size = 7;
+      ctx.beginPath();
+      if (pointsUp) {
+        ctx.moveTo(px, py - size);
+        ctx.lineTo(px - size, py + size);
+        ctx.lineTo(px + size, py + size);
+      } else {
+        ctx.moveTo(px, py + size);
+        ctx.lineTo(px - size, py - size);
+        ctx.lineTo(px + size, py - size);
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    };
+
+    ctx.save();
+    refuels.forEach((e) => {
+      const px = x.getPixelForValue(new Date(e.timestamp).getTime());
+      if (px < x.left || px > x.right) return;
+      drawTriangle(px, y.getPixelForValue(e.fuelAfter), '#16a34a', true);
+    });
+    thefts.forEach((e) => {
+      const px = x.getPixelForValue(new Date(e.timestamp).getTime());
+      if (px < x.left || px > x.right) return;
+      drawTriangle(px, y.getPixelForValue(e.fuelBefore), '#dc2626', false);
+    });
+    drops.forEach((e) => {
+      const px = x.getPixelForValue(new Date(e.timestamp).getTime());
+      if (px < x.left || px > x.right) return;
+      drawTriangle(px, y.getPixelForValue(e.fuelAfter), '#f59e0b', false);
+    });
+    ctx.restore();
+  },
+};
+
+Chart.register(LineController, LineElement, PointElement, LinearScale, TimeScale, Tooltip, Legend, Filler, eventMarkersPlugin);
+
+// Formats an ISO timestamp as PKT date/time text — forcing timeZone:'UTC'
+// recovers the original PKT wall-clock value the DB stored (it saves
+// PKT-naive datetimes that the UTC server reads back as UTC).
+function formatActivityTime(ts) {
+  try {
+    return new Date(ts).toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'UTC',
+    });
+  } catch {
+    return '';
+  }
+}
 
 // Returns chronological array of YYYY-MM-DD strings between start and end (inclusive)
 function datesInRange(start, end) {
@@ -45,9 +114,10 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
   const [rangeStart, setRangeStart] = useState(selectedDate || endDate || '');
   const [rangeEnd,   setRangeEnd]   = useState(endDate || selectedDate || '');
   const [fuelData,   setFuelData]   = useState([]);
+  const [events,     setEvents]     = useState({ refuels: [], thefts: [], drops: [], consumptions: [] });
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState(null);
-  const [stats, setStats] = useState({ currentLevel: 0, maxLevel: 0, minLevel: 0, refuelAmount: 0 });
+  const [stats, setStats] = useState({ currentLevel: 0, maxLevel: 0, minLevel: 0, refuelAmount: 0, theftAmount: 0 });
 
   // When filter / bound dates change, reset the picker to the full filter window
   useEffect(() => {
@@ -73,6 +143,7 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
         setLoading(true);
         setError(null);
         setFuelData([]);
+        setEvents({ refuels: [], thefts: [], drops: [], consumptions: [] });
 
         const dates = datesInRange(rangeStart, rangeEnd);
 
@@ -88,12 +159,23 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
         // Sort chronologically
         combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
 
-        // Sum refuels from the backend's multi-layer detection (summary.totalRefueled),
-        // not from raw rises — the backend already filters noise, recovery artefacts, etc.
-        const refuelAmount = results.reduce((sum, r) => {
-          if (r.status !== 'fulfilled') return sum;
-          return sum + (r.value?.summary?.totalRefueled || 0);
-        }, 0);
+        // Real refuel/theft events straight from the backend's multi-layer
+        // detection (same engine used for KPI totals) — not a naive
+        // rise/drop heuristic recomputed client-side.
+        const refuels = results.flatMap(r => (r.status === 'fulfilled' && Array.isArray(r.value?.refuelEvents)) ? r.value.refuelEvents : []);
+        const thefts  = results.flatMap(r => (r.status === 'fulfilled' && Array.isArray(r.value?.theftEvents))  ? r.value.theftEvents  : []);
+        // A sizeable, abrupt drop while the generator was running — not
+        // "theft" (that's unaccounted loss while OFF), but a real, dated
+        // drop worth showing (e.g. manual fuel removal during testing).
+        const drops = results.flatMap(r => (r.status === 'fulfilled' && Array.isArray(r.value?.dropEvents)) ? r.value.dropEvents : []);
+        // Net fuel used across a whole running session — normal consumption,
+        // not a discrete anomalous drop.
+        const consumptions = results.flatMap(r => (r.status === 'fulfilled' && Array.isArray(r.value?.consumptionEvents)) ? r.value.consumptionEvents : []);
+        refuels.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        thefts.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        drops.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        consumptions.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        setEvents({ refuels, thefts, drops, consumptions });
 
         if (combined.length > 0) {
           setFuelData(combined);
@@ -103,11 +185,15 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
           const minLevel = Math.min(...levels);
           const currentLevel = levels[levels.length - 1] || 0;
 
+          const refuelAmount = refuels.reduce((sum, e) => sum + (e.amount || 0), 0);
+          const theftAmount  = thefts.reduce((sum, e) => sum + (e.amount || 0), 0);
+
           setStats({
             currentLevel,
             maxLevel,
             minLevel,
             refuelAmount: Math.round(refuelAmount * 100) / 100,
+            theftAmount: Math.round(theftAmount * 100) / 100,
           });
         }
       } catch (err) {
@@ -169,6 +255,7 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
         interaction: { intersect: false, mode: 'index' },
         plugins: {
           legend: { display: false },
+          eventMarkers: { refuels: events.refuels, thefts: events.thefts, drops: events.drops },
           tooltip: {
             backgroundColor: '#1f2937',
             padding: 12,
@@ -223,7 +310,7 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
         chartInstance.current = null;
       }
     };
-  }, [fuelData]);
+  }, [fuelData, events]);
 
   const handleGeneratorChange = (e) => {
     const gen = vehiclesWithFuel.find(v => v.id === parseInt(e.target.value));
@@ -247,6 +334,19 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
   // Constraint bounds from the active filter window
   const minDate = startDate || '';
   const maxDate = endDate   || selectedDate || '';
+
+  // Written log of every real refuel/theft/consumption event for the
+  // selected generator + range, newest first — the graph markers show WHEN
+  // visually, this spells out WHAT happened (day, time, amount) in text.
+  // "Consumption" = a sizeable drop while the generator was actually running
+  // (normal fuel burn) — visible as the line's downslope on the chart but
+  // not a theft/refuel event, so without this it would never appear here.
+  const activityLog = [
+    ...events.refuels.map(e => ({ ...e, kind: 'refuel' })),
+    ...events.thefts.map(e => ({ ...e, kind: 'theft' })),
+    ...(events.drops || []).map(e => ({ ...e, kind: 'drop' })),
+    ...(events.consumptions || []).map(e => ({ ...e, kind: 'consumption' })),
+  ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   return (
     <div className="chart-card generator-fuel-chart">
@@ -321,6 +421,30 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
               <span className="stat-value">+{stats.refuelAmount.toFixed(2)} L</span>
             </div>
           )}
+          {stats.theftAmount > 0 && (
+            <div className="stat-item theft">
+              <span className="stat-label">Theft</span>
+              <span className="stat-value">-{stats.theftAmount.toFixed(2)} L</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Marker legend ── */}
+      {activityLog.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px', margin: '4px 0 8px', fontSize: '12px', color: '#6b7280' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderBottom: '8px solid #16a34a' }} />
+            Refuel
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '8px solid #dc2626' }} />
+            Theft
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <span style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: '8px solid #f59e0b' }} />
+            Drop
+          </span>
         </div>
       )}
 
@@ -348,6 +472,42 @@ const GeneratorFuelChart = ({ vehicles, selectedDate, filter, startDate, endDate
           <canvas ref={chartRef} />
         )}
       </div>
+
+      {/* ── Written fuel activity log — text form of the graph markers ── */}
+      {!loading && !error && activityLog.length > 0 && (
+        <div className="fuel-activity-log">
+          <div className="fuel-activity-log-header">
+            Fuel Activity Log — {selectedGenerator?.name || 'Generator'}
+          </div>
+          <ul className="fuel-activity-list">
+            {activityLog.map((ev, idx) => {
+              const icon = ev.kind === 'refuel' ? 'fa-gas-pump'
+                : ev.kind === 'theft' ? 'fa-triangle-exclamation'
+                : ev.kind === 'drop' ? 'fa-circle-exclamation'
+                : 'fa-arrow-trend-down';
+              const label = ev.kind === 'refuel' ? `Refueled +${ev.amount} L`
+                : ev.kind === 'theft' ? `Theft −${ev.amount} L`
+                : ev.kind === 'drop' ? `Fuel drop −${ev.amount} L`
+                : `Fuel used −${ev.amount} L (generator running)`;
+              const subtext = ev.kind === 'theft' ? ', generator OFF'
+                : ev.kind === 'drop' ? ', generator running'
+                : '';
+              return (
+                <li key={idx} className={`fuel-activity-item ${ev.kind}`}>
+                  <i className={`fas ${icon}`}></i>
+                  <span className="fuel-activity-text">
+                    {label}
+                    <span className="fuel-activity-sub">
+                      ({ev.fuelBefore} L → {ev.fuelAfter} L{subtext})
+                    </span>
+                  </span>
+                  <span className="fuel-activity-time">{formatActivityTime(ev.timestamp)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };

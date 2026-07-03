@@ -2432,6 +2432,94 @@ body {
     color: var(--green-500);
 }
 
+.stat-item.theft .stat-value {
+    color: var(--red-500);
+}
+
+/* Fuel Activity Log — written list of refuel/theft events under the chart */
+.fuel-activity-log {
+    margin-top: 20px;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.fuel-activity-log-header {
+    padding: 12px 16px;
+    background: var(--gray-50);
+    border-bottom: 1px solid var(--gray-200);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.fuel-activity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.fuel-activity-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--gray-100);
+    font-size: 13px;
+}
+
+.fuel-activity-item:last-child {
+    border-bottom: none;
+}
+
+.fuel-activity-item i {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.fuel-activity-item.refuel i,
+.fuel-activity-item.refuel .fuel-activity-text {
+    color: var(--green-500);
+}
+
+.fuel-activity-item.theft i,
+.fuel-activity-item.theft .fuel-activity-text {
+    color: var(--red-500);
+}
+
+.fuel-activity-item.consumption i,
+.fuel-activity-item.consumption .fuel-activity-text {
+    color: var(--navy-800);
+}
+
+.fuel-activity-item.drop i,
+.fuel-activity-item.drop .fuel-activity-text {
+    color: var(--amber-500);
+}
+
+.fuel-activity-text {
+    flex: 1;
+    font-weight: 600;
+}
+
+.fuel-activity-sub {
+    color: var(--gray-400);
+    font-weight: 400;
+    margin-left: 6px;
+}
+
+.fuel-activity-time {
+    color: var(--gray-500);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 .stat-label {
     font-size: 11px;
     font-weight: 600;

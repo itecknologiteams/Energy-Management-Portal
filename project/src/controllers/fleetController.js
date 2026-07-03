@@ -436,6 +436,9 @@ async function getVehicleFuelSeries(req, res, next) {
       buildFuelIgnitionSeries,
       smoothFuelIgnitionSeries,
       detectFuelEvents,
+      calculateGeneratorRunIntervals,
+      findNearestFuel,
+      mergeCloseRuns,
     } = require('../services/analyticsService');
 
     // Build fuel series
@@ -448,13 +451,54 @@ async function getVehicleFuelSeries(req, res, next) {
 
     // Use the same multi-layer detection algorithm as calculateVehicleAnalytics
     // to avoid counting noise spikes, recovery rises, and post-run battery artefacts.
-    const { refuels } = detectFuelEvents(rawSeries, smoothed, null, powerEvents);
+    const { refuels, theftDrops, runningDrops } = detectFuelEvents(rawSeries, smoothed, null, powerEvents);
     const refuelEvents = refuels.map(r => ({
       timestamp: r.at,
       amount:    Math.round(r.added    * 100) / 100,
       fuelBefore: Math.round(r.before  * 100) / 100,
       fuelAfter:  Math.round(r.after   * 100) / 100,
     }));
+    const theftEvents = theftDrops.map(d => ({
+      timestamp: d.at,
+      amount:    Math.round(d.consumed * 100) / 100,
+      fuelBefore: Math.round(d.before  * 100) / 100,
+      fuelAfter:  Math.round(d.after   * 100) / 100,
+    }));
+    // Sizeable abrupt drops while the generator was running — not "theft"
+    // (reserved for unaccounted loss while OFF), but a real, dated drop a
+    // user can verify against what they know actually happened (e.g. a
+    // manual fuel removal during testing/maintenance).
+    const dropEvents = runningDrops.map(d => ({
+      timestamp: d.at,
+      amount:    Math.round(d.consumed * 100) / 100,
+      fuelBefore: Math.round(d.before  * 100) / 100,
+      fuelAfter:  Math.round(d.after   * 100) / 100,
+    }));
+
+    // Fuel used while the generator was actually running (ignition ON) —
+    // detectFuelEvents only flags drops during OFF periods as theft, so a
+    // real, sizeable drop that happens WHILE running (normal consumption)
+    // would otherwise never be surfaced anywhere as a discrete, dated entry.
+    // Runs separated by a short gap (brief restart blips) are merged into one
+    // session first so a real multi-hour session isn't fragmented into
+    // several pieces too small individually to clear the threshold.
+    const MIN_LOGGED_RUN_CONSUMPTION = 5; // L
+    const RUN_MERGE_GAP_MS = 10 * 60 * 1000; // ms
+    const consumptionEvents = mergeCloseRuns(calculateGeneratorRunIntervals(trackingRows), RUN_MERGE_GAP_MS)
+      .map((run) => {
+        const fuelAtStart = findNearestFuel(smoothed, run.start);
+        const fuelAtEnd   = findNearestFuel(smoothed, run.stop);
+        if (fuelAtStart == null || fuelAtEnd == null) return null;
+        const consumed = Math.round((fuelAtStart - fuelAtEnd) * 100) / 100;
+        if (consumed < MIN_LOGGED_RUN_CONSUMPTION) return null;
+        return {
+          timestamp: run.stop,
+          amount: consumed,
+          fuelBefore: Math.round(fuelAtStart * 100) / 100,
+          fuelAfter: Math.round(fuelAtEnd * 100) / 100,
+        };
+      })
+      .filter(Boolean);
 
     // Format series for graphing (raw data points)
     const fuelSeries = rawSeries.map((point) => ({
@@ -479,9 +523,14 @@ async function getVehicleFuelSeries(req, res, next) {
         maxFuel: Math.round(maxFuel * 100) / 100,
         totalRefueled: refuelEvents.reduce((sum, e) => sum + e.amount, 0),
         refuelCount: refuelEvents.length,
+        totalTheft: theftEvents.reduce((sum, e) => sum + e.amount, 0),
+        theftCount: theftEvents.length,
       },
       fuelSeries,
       refuelEvents,
+      theftEvents,
+      dropEvents,
+      consumptionEvents,
     });
   } catch (err) {
     next(err);

@@ -109,8 +109,7 @@ const validators = {
 
 // Helper function for making API calls
 const fetchApi = async (endpoint, options = {}) => {
-  //remove the API_BASE_URL before deploying to production
-  const url = `${endpoint}`;
+  const url = `${API_BASE_URL}${endpoint}`;
 
   const config = {
     headers: {
@@ -357,6 +356,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           generatorStopTime: stopTime,
           generatorStartTimeRaw: analytics.generatorStartTime,
           generatorStopTimeRaw: analytics.generatorStopTime,
+          fuelEvents: (analytics.fuelEvents || []).map(e => ({ ...e, date: formattedDate })),
           dailyRuns: (analytics.generatorRuns || []).map((run, idx) => ({
             date:            formattedDate,
             startTime:       run.start,
@@ -445,6 +445,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
             workTime:           a.workTime            ?? 0,
             fuel:               a.fuel                ?? null,
             dailyRuns:          [],
+            fuelEvents:         (a.fuelEvents || []).map(e => ({ ...e, date: dayDate })),
           },
         });
       } else {
@@ -459,6 +460,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
         if (a.fuel             != null) e.fuel             = a.fuel;
         if (!e.generatorStartTime && a.generatorStartTime) e.generatorStartTime = a.generatorStartTime;
         if (a.generatorStopTime)                           e.generatorStopTime  = a.generatorStopTime;
+        e.fuelEvents.push(...(a.fuelEvents || []).map(ev => ({ ...ev, date: dayDate })));
       }
 
       (a.generatorRuns || []).forEach((run, idx) => {
@@ -542,6 +544,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       generatorStartTimeRaw: analytics.generatorStartTime,
       generatorStopTimeRaw:  analytics.generatorStopTime,
       dailyRuns:             analytics.dailyRuns || [],
+      fuelEvents:            analytics.fuelEvents || [],
       sensors,
       sensorCount: sensors.fuelKeys?.length || 0,
       status, statusClass, iconClass,
