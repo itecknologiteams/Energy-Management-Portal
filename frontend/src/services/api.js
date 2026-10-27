@@ -221,7 +221,9 @@ export const getFleetVehiclesWithSensors = (fleetId = 1735) => {
   return fetchApi(`/api/fleets/${validatedFleetId}/vehicles-with-sensors`);
 };
 
-export const getFleetAnalytics = (fleetId = 1735, date) => {
+// includeLastKnown: vehicles with no data on `date` also get the last data the
+// GPS server received before it (a `lastKnown` block).
+export const getFleetAnalytics = (fleetId = 1735, date, includeLastKnown = false) => {
   // Client-side validation for fleetId
   const validatedFleetId = validators.fleetId(fleetId);
 
@@ -230,8 +232,28 @@ export const getFleetAnalytics = (fleetId = 1735, date) => {
   validators.dateFormat(formattedDate);
   validators.dateNotFuture(formattedDate);
 
-  return fetchApi(`/api/fleets/${validatedFleetId}/analytics?date=${formattedDate}`);
+  const lastKnownQuery = includeLastKnown ? '&includeLastKnown=true' : '';
+  return fetchApi(`/api/fleets/${validatedFleetId}/analytics?date=${formattedDate}${lastKnownQuery}`);
 };
+
+// Fill a silent vehicle's readings from the last data the GPS server received,
+// and note when that was so the UI can say the values are not from today.
+function applyLastKnown(v) {
+  const lk = v.lastKnown;
+  if (!lk) return v;
+  const a = v.analytics || {};
+  return {
+    ...v,
+    analytics: {
+      ...a,
+      batteryHealth:    a.batteryHealth    ?? lk.batteryHealth,
+      gpsBackupBattery: a.gpsBackupBattery ?? lk.gpsBackupBattery,
+      fuel:             a.fuel             ?? lk.fuel,
+      temperature:      a.temperature      ?? lk.temperature,
+      lastUpdate:       lk.timestamp,
+    },
+  };
+}
 
 // Vehicle Endpoints
 export const getVehicleSensors = (vehicleId) => {
@@ -276,7 +298,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
   try {
     // Fetch all data in parallel
     const [fleetAnalytics, fleetVehicles] = await Promise.all([
-      getFleetAnalytics(validatedFleetId, formattedDate),
+      getFleetAnalytics(validatedFleetId, formattedDate, true),
       getFleetVehiclesWithSensors(validatedFleetId),
     ]);
 
@@ -291,7 +313,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
     const vehicles = (fleetAnalytics.vehicles || []).filter(v => {
       const sensors = sensorsMap.get(String(v.vehicleId)) || {};
       return !sensors.fuelChartExcluded;
-    });
+    }).map(applyLastKnown);
     const totalFuelConsumed = vehicles.reduce((sum, v) => sum + (v.analytics?.fuelConsumption || 0), 0);
     const totalWorkTime = vehicles.reduce((sum, v) => sum + (v.analytics?.workTime || 0), 0);
     const activeVehicles = vehicles.filter(v => (v.analytics?.workTime || 0) > 0).length;
@@ -353,6 +375,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           batteryHealth: analytics.batteryHealth ?? null,
           gpsBackupBattery: analytics.gpsBackupBattery ?? null,
           fuelLevel: analytics.fuel || '-',
+          temperature: analytics.temperature ?? null,
           fuelConsumption: analytics.fuelConsumption || 0,
           fuelTheft: analytics.fuelTheft || 0,
           fuelRefilled: analytics.fuelRefilled || 0,
@@ -373,6 +396,8 @@ export const getDashboardData = async (fleetId = 1735, date) => {
             isOpen:          run.isOpen,
             isCarryover:     run.isCarryover || false,
           })),
+          // When set, the readings above are the last ones received at this time
+          lastUpdate: analytics.lastUpdate ?? null,
           // Sensor info
           sensors: sensors,
           sensorCount: sensors.fuelKeys?.length || 0,
@@ -433,7 +458,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
 
   for (const result of dayResults) {
     const dayDate = result.date;
-    for (const v of (result?.vehicles || [])) {
+    for (const v of (result?.vehicles || []).map(applyLastKnown)) {
       const a = v.analytics || {};
 
       if (!map.has(v.vehicleId)) {
@@ -451,6 +476,8 @@ function aggregateVehiclesAcrossDates(dayResults) {
             generatorStopTime:  a.generatorStopTime   ?? null,
             workTime:           a.workTime            ?? 0,
             fuel:               a.fuel                ?? null,
+            temperature:        a.temperature         ?? null,
+            lastUpdate:         a.lastUpdate          ?? null,
             dailyRuns:          [],
             fuelEvents:         (a.fuelEvents || []).map(e => ({ ...e, date: dayDate })),
           },
@@ -465,6 +492,8 @@ function aggregateVehiclesAcrossDates(dayResults) {
         if (a.batteryHealth    != null) e.batteryHealth    = a.batteryHealth;
         if (a.gpsBackupBattery != null) e.gpsBackupBattery = a.gpsBackupBattery;
         if (a.fuel             != null) e.fuel             = a.fuel;
+        if (a.temperature      != null) e.temperature      = a.temperature;
+        if (a.lastUpdate       != null) e.lastUpdate       = a.lastUpdate;
         if (!e.generatorStartTime && a.generatorStartTime) e.generatorStartTime = a.generatorStartTime;
         if (a.generatorStopTime)                           e.generatorStopTime  = a.generatorStopTime;
         e.fuelEvents.push(...(a.fuelEvents || []).map(ev => ({ ...ev, date: dayDate })));
@@ -491,11 +520,15 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
   const validatedFleetId = validators.fleetId(fleetId);
   const dates = buildDateRange(startDate, endDate);
 
+  // Only a range that ends today asks for last-known data, and only for its
+  // final day — that is the vehicle's current state.
+  const todayStr = toLocalDateStr(new Date());
   const [dayResults, fleetVehicles] = await Promise.all([
     Promise.all(
-      dates.map(d =>
-        fetchApi(`/api/fleets/${validatedFleetId}/analytics?date=${d}`).catch(() => null)
-      )
+      dates.map(d => {
+        const lastKnownQuery = d === todayStr ? '&includeLastKnown=true' : '';
+        return fetchApi(`/api/fleets/${validatedFleetId}/analytics?date=${d}${lastKnownQuery}`).catch(() => null);
+      })
     ),
     getFleetVehiclesWithSensors(validatedFleetId),
   ]);
@@ -540,6 +573,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       batteryHealth:    analytics.batteryHealth    ?? null,
       gpsBackupBattery: analytics.gpsBackupBattery ?? null,
       fuelLevel:        analytics.fuel          || '-',
+      temperature:      analytics.temperature   ?? null,
       fuelConsumption:  analytics.fuelConsumption  || 0,
       fuelTheft:        analytics.fuelTheft        || 0,
       fuelRefilled:     analytics.fuelRefilled     || 0,
@@ -552,6 +586,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       generatorStopTimeRaw:  analytics.generatorStopTime,
       dailyRuns:             analytics.dailyRuns || [],
       fuelEvents:            analytics.fuelEvents || [],
+      lastUpdate:            analytics.lastUpdate || null,
       sensors,
       sensorCount: sensors.fuelKeys?.length || 0,
       status, statusClass, iconClass,

@@ -66,6 +66,14 @@ const DEFAULT_SENSOR_KEYS = {
   generator: '236',     // io236 may contain generator state
 };
 
+// Temperature probe: Teltonika io72 (Dallas Temperature 1), reported in 0.1 °C.
+// Valid range is the DS18B20 probe's -55…125 °C; anything outside is a device
+// error code (850 not ready, 2000 read error, 3000 not connected, …).
+const TEMPERATURE_PARAM_KEY = '72';
+const TEMPERATURE_SCALE = 0.1;
+const TEMPERATURE_MIN_C = -55;
+const TEMPERATURE_MAX_C = 125;
+
 // ─── Vehicles excluded from the Fuel Level History chart ────────────────────
 // These vehicles have VehicleSensors rows with calibration in the DB, but the
 // physical fuel sensor probe is not connected (io9 Params always empty).
@@ -104,6 +112,10 @@ module.exports = {
   SENSOR_TYPE_ENGINE_HOURS,
   SENSOR_TYPE_GENERATOR,
   DEFAULT_SENSOR_KEYS,
+  TEMPERATURE_PARAM_KEY,
+  TEMPERATURE_SCALE,
+  TEMPERATURE_MIN_C,
+  TEMPERATURE_MAX_C,
   NO_FUEL_SENSOR_VEHICLE_IDS,
   DEBUG_MODE,
 };

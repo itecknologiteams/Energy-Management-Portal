@@ -6,7 +6,11 @@
 
 const fleetService = require('../services/fleetService');
 const { analyticsService } = require('../services');
-const { getTrackingData } = require('../repositories/trackingRepository');
+const {
+  getTrackingData,
+  findLatestDateWithData,
+  TrackingTableNotFoundError,
+} = require('../repositories/trackingRepository');
 const sensorRepository = require('../repositories/sensorRepository');
 const sensorMapper = require('../helpers/sensorMapper');
 
@@ -132,8 +136,38 @@ async function getVehicleAnalytics(req, res, next) {
 }
 
 /**
- * GET /api/fleets/:fleetId/analytics?date=YYYY-MM-DD
+ * The last data the GPS server received for a vehicle that has none on `date`:
+ * the latest earlier day with rows, and that day's closing battery/fuel.
+ *
+ * @param {number} vehicleId
+ * @param {string} date - YYYY-MM-DD
+ * @param {Object} sensorKeys - from sensorMapper.resolveSensorKeys()
+ * @returns {Promise<Object|null>} null when nothing is found in the lookback window
+ */
+async function getLastKnownData(vehicleId, date, sensorKeys) {
+  const lastDate = await findLatestDateWithData(vehicleId, date);
+  if (!lastDate) return null;
+
+  const rows = await getTrackingData(vehicleId, lastDate);
+  if (rows.length === 0) return null;
+
+  const analytics = analyticsService.calculateVehicleAnalytics(vehicleId, lastDate, sensorKeys, rows);
+
+  return {
+    date: lastDate,
+    timestamp: rows[rows.length - 1].timestamp,
+    batteryHealth: analytics.batteryHealth ?? null,
+    gpsBackupBattery: analytics.gpsBackupBattery ?? null,
+    fuel: analytics.fuel ?? null,
+    temperature: analytics.temperature ?? null,
+  };
+}
+
+/**
+ * GET /api/fleets/:fleetId/analytics?date=YYYY-MM-DD[&includeLastKnown=true]
  * Calculate analytics for all vehicles in a fleet on a specific date.
+ * With includeLastKnown, a vehicle that sent nothing on `date` also gets a
+ * `lastKnown` block holding the last data received before it.
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -143,6 +177,7 @@ async function getFleetAnalytics(req, res, next) {
   try {
     const { fleetId } = req.params;
     const { date } = req.query;
+    const includeLastKnown = req.query.includeLastKnown === 'true';
 
     if (!date) {
       return res.status(400).json({
@@ -163,7 +198,12 @@ async function getFleetAnalytics(req, res, next) {
           // Fetch sensor config and tracking data in parallel
           const [mappingRows, trackingRows] = await Promise.all([
             sensorRepository.getSensorMappingsByVehicleId(parsedVehicleId),
-            getTrackingData(parsedVehicleId, date),
+            getTrackingData(parsedVehicleId, date).catch((err) => {
+              // A day whose table is not created yet just has no rows when
+              // we can still fall back to earlier data.
+              if (includeLastKnown && err instanceof TrackingTableNotFoundError) return [];
+              throw err;
+            }),
           ]);
 
           const sensorKeys = sensorMapper.resolveSensorKeys(mappingRows);
@@ -176,10 +216,15 @@ async function getFleetAnalytics(req, res, next) {
             trackingRows
           );
 
+          const lastKnown = includeLastKnown && trackingRows.length === 0
+            ? await getLastKnownData(parsedVehicleId, date, sensorKeys)
+            : undefined;
+
           return {
             vehicleId: parsedVehicleId,
             vehicleName,
             analytics,
+            ...(lastKnown !== undefined && { lastKnown }),
           };
         } catch (err) {
           console.error(`[fleetController] Failed to get analytics for vehicle ${vehicleId}:`, err.message);

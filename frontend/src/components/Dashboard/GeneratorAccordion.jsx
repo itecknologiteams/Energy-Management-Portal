@@ -28,6 +28,7 @@ import {
   Fuel,
   Droplets,
   Battery,
+  Thermometer,
   ShieldAlert,
   AlertTriangle,
   TrendingUp,
@@ -431,6 +432,9 @@ function AccordionItem({ item, isOpen, onToggle }) {
   const batteryDisplay = item.batteryHealth != null
     ? `${(item.batteryHealth / 1000).toFixed(1)} V`
     : '—';
+  const temperatureDisplay = item.temperature != null
+    ? `${Number(item.temperature).toFixed(1)} °C`
+    : '—';
 
   const hasDailyRuns = Array.isArray(item.dailyRuns) && item.dailyRuns.length > 0;
   const fuelEvents   = Array.isArray(item.fuelEvents)
@@ -468,6 +472,12 @@ function AccordionItem({ item, isOpen, onToggle }) {
               <MapPin className="w-3 h-3 text-gray-400 flex-shrink-0" />
               <span className="text-xs text-gray-400 truncate">{item.type || 'Generator'}</span>
             </div>
+            {/* The device sent nothing in this period — readings are its last ones */}
+            {item.lastUpdate && (
+              <p className="text-xs text-amber-600 truncate mt-0.5" title="No data received in this period; showing the last data from the GPS server">
+                Last data: {new Date(item.lastUpdate).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}
+              </p>
+            )}
           </div>
 
           {/* Status badge */}
@@ -481,6 +491,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
             {!item.noFuelSensor && <MetricChip icon={Fuel}     label="Fuel Used"  value={item.fuelUsed || (item.fuelConsumption != null ? `${item.fuelConsumption} L` : '—')} />}
             {!item.noFuelSensor && <MetricChip icon={Droplets} label="Fuel Level" value={fuelLevelDisplay} />}
             <MetricChip icon={Battery}  label="Battery"    value={batteryDisplay} />
+            <MetricChip icon={Thermometer} label="Temp"    value={temperatureDisplay} />
             {theft > 0 && (
               <MetricChip icon={ShieldAlert} label="Theft"
                 value={typeof item.fuelTheft === 'string' ? item.fuelTheft : `${theft} L`}
@@ -499,6 +510,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
           <MetricChip icon={Clock}    label="Work"    value={item.hours || `${workHrs} hrs`} />
           {!item.noFuelSensor && <MetricChip icon={Droplets} label="Fuel" value={fuelLevelDisplay} />}
           <MetricChip icon={Battery}  label="Battery" value={batteryDisplay} />
+          <MetricChip icon={Thermometer} label="Temp" value={temperatureDisplay} />
           {theft > 0 && (
             <MetricChip icon={ShieldAlert} label="Theft"
               value={`${theft} L`} variant="danger" />

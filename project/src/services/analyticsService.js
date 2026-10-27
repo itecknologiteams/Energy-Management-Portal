@@ -37,6 +37,10 @@ const {
   MIN_VALID_RUNNING_MINUTES,
   DEBUG_MODE,
   NO_FUEL_SENSOR_VEHICLE_IDS,
+  TEMPERATURE_PARAM_KEY,
+  TEMPERATURE_SCALE,
+  TEMPERATURE_MIN_C,
+  TEMPERATURE_MAX_C,
 } = require('../constants');
 
 // ─── Multi-layer fuel detection constants ────────────────────────────────────
@@ -125,6 +129,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
       generatorRuns,
       workTime:           calculateWorkTime(trackingRows),
       fuel:               null,
+      temperature:        calculateTemperature(trackingRows),
     };
   }
 
@@ -243,6 +248,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     generatorRuns,
     workTime:           calculateWorkTime(trackingRows),
     fuel:               getFinalFuelValue(rawSeries),
+    temperature:        calculateTemperature(trackingRows),
   };
 }
 
@@ -1283,6 +1289,25 @@ function calculateGpsBackupBattery(rows) {
 }
 
 /**
+ * 1c. TEMPERATURE — latest valid reading of the temperature probe (io72).
+ *
+ * A raw 0 is skipped: the probe reads exactly 0 while the device has lost
+ * main power (seen on GENSET-TCM), which would show as a false 0 °C.
+ *
+ * @param {Array} rows - raw tracking rows
+ * @returns {number|null} Temperature in °C (1 decimal), or null if no probe data
+ */
+function calculateTemperature(rows) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const raw = getParamValue(parseParams(rows[i].params), TEMPERATURE_PARAM_KEY);
+    if (raw === null || raw === 0) continue;
+    const celsius = raw * TEMPERATURE_SCALE;
+    if (celsius >= TEMPERATURE_MIN_C && celsius <= TEMPERATURE_MAX_C) return round(celsius, 1);
+  }
+  return null;
+}
+
+/**
  * 2. FUEL CONSUMPTION — run-window mass-balance formula.
  *
  *   consumed = max(0, (fuelBeforeFirstRun - fuelAfterLastRun) + totalRefueled)
@@ -1598,6 +1623,7 @@ function createEmptyAnalytics() {
     generatorStopTime: null,
     workTime: null,
     fuel: null,
+    temperature: null,
   };
 }
 

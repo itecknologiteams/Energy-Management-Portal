@@ -211,6 +211,58 @@ async function getTrackingDataCount(vehicleId, date) {
   }
 }
 
+/**
+ * Find the most recent date before `date` on which a vehicle has tracking rows.
+ * Used when a device has gone silent, so the portal can still show the last
+ * data the GPS server received instead of a blank row.
+ *
+ * @param {number} vehicleId — Vehicle ID
+ * @param {string} date — Date in format "YYYY-MM-DD" (searched from the day before)
+ * @param {number} [lookbackDays=30] — How many daily tables to check
+ * @returns {Promise<string|null>} "YYYY-MM-DD" of the latest day with data, or null
+ */
+async function findLatestDateWithData(vehicleId, date, lookbackDays = 30) {
+  if (!vehicleId || typeof vehicleId !== 'number' || vehicleId <= 0) {
+    throw new Error('vehicleId must be a positive number');
+  }
+
+  if (!validateDateFormat(date)) {
+    throw new Error(`Invalid date format: ${date}. Expected YYYY-MM-DD.`);
+  }
+
+  const pool = await getPool();
+  const [y, m, d] = date.split('-').map(Number);
+
+  for (let i = 1; i <= lookbackDays; i++) {
+    // Date.UTC keeps the arithmetic free of local-timezone shifts
+    const day = new Date(Date.UTC(y, m - 1, d - i)).toISOString().split('T')[0];
+    const tableName = dateToTableName(day);
+
+    if (!(await tableExists(pool, tableName))) continue;
+
+    try {
+      const result = await pool
+        .request()
+        .input('vehicleId', vehicleId)
+        .query(`
+          SELECT TOP 1 1 AS found
+          FROM dbo.${tableName}
+          WHERE ${TRACKING_VEHICLE_COLUMN} = @vehicleId
+        `);
+
+      if (result.recordset.length > 0) return day;
+    } catch (err) {
+      console.error('[trackingRepository] Error searching latest data:', err.message);
+      throw new DatabaseError(
+        `Failed to search latest tracking data for vehicle ${vehicleId} before ${date}`,
+        err
+      );
+    }
+  }
+
+  return null;
+}
+
 // Re-export the error class for consumers
 const { TrackingTableNotFoundError: TrackingTableNotFoundErrorClass } = require('../utils/errors');
 
@@ -218,5 +270,6 @@ module.exports = {
   getTrackingData,
   getTrackingDataInRange,
   getTrackingDataCount,
+  findLatestDateWithData,
   TrackingTableNotFoundError: TrackingTableNotFoundErrorClass,
 };

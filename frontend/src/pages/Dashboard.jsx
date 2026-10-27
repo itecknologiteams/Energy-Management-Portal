@@ -192,7 +192,7 @@ const Dashboard = ({ onNavigate }) => {
 
       // ── Per-generator section ─────────────────────────────────────────────────
       rows.push(['GENERATOR BREAKDOWN']);
-      rows.push(['Generator Name', 'Status', 'Fuel Consumed (L)', 'Work Time (hrs)', 'Fuel Level (L)', 'Battery (V)', 'Fuel Refilled (L)', 'Fuel Theft (L)']);
+      rows.push(['Generator Name', 'Status', 'Fuel Consumed (L)', 'Work Time (hrs)', 'Fuel Level (L)', 'Battery (V)', 'Temperature (°C)', 'Fuel Refilled (L)', 'Fuel Theft (L)']);
 
       vehicles.forEach(v => {
         rows.push([
@@ -202,6 +202,7 @@ const Dashboard = ({ onNavigate }) => {
           v.workTimeHours   != null ? Number(v.workTimeHours).toFixed(1)   : '0.0',
           v.fuelLevel != null && v.fuelLevel !== '-' ? Number(v.fuelLevel).toFixed(1) : '—',
           v.batteryHealth   != null ? (v.batteryHealth / 1000).toFixed(2)  : '—',
+          v.temperature     != null ? Number(v.temperature).toFixed(1)     : '—',
           v.fuelRefilled    != null ? Number(v.fuelRefilled).toFixed(2)    : '—',
           v.fuelTheft       != null ? Number(v.fuelTheft).toFixed(2)       : '—',
         ]);
