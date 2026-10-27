@@ -79,9 +79,7 @@ const TEMPERATURE_MAX_C = 125;
 // physical fuel sensor probe is not connected (io9 Params always empty).
 // Battery column on these devices carries device supply voltage, not fuel ADC.
 // Removing them here avoids a DB schema change while keeping the chart clean.
-const NO_FUEL_SENSOR_VEHICLE_IDS = [
-  375957, // INNER BYE PASS D/S — Battery column is 12 V supply (io9=12105 mV), not fuel ADC
-];
+const NO_FUEL_SENSOR_VEHICLE_IDS = [];
 
 // ─── Environment & Debugging ────────────────────────────────────────────────
 
