@@ -278,6 +278,7 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
   const powerEvents = []; // timestamps of high-battery exclusions (device power events)
   let preferredFuelPoints = 0; // points from FuelLevel or Params (reliable)
   let batteryFallbackPoints = 0; // points from Battery column (may be device voltage)
+  const batteryFallbackSeries = new Set();
 
   for (const row of rows) {
     let fuel = null;
@@ -296,10 +297,15 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
       const params = parseParams(row.params);
       let pv = getParamValue(params, fuelSensorKey);
       if (pv !== null) {
+        if (String(fuelSensorKey) === '9' && getParamValue(params, '66') === 0) {
+          powerEvents.push(new Date(row.timestamp));
+          continue;
+        }
+
         // Teltonika devices report IO analog inputs in mV (e.g. IO9 = 4087 mV = 4.087 V).
         // If calibration x-axis is in volts (max ≤ 20) but the raw value is 100× larger,
         // convert mV → V before calibrating.
-        pv = normalizeFuelRaw(pv, calibrationMaxX);
+        pv = normalizeFuelRaw(pv, calibrationMaxX, String(fuelSensorKey) === '9');
         fuel = pv;
         needsCalibration = true;
       }
@@ -361,14 +367,60 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
       preferredFuelPoints++;
     }
 
-    series.push({
+    const point = {
       timestamp: new Date(row.timestamp),
       fuel,
       ignition: effectiveIgnition(row),
-    });
+    };
+    series.push(point);
+    if (usedBatteryFallback) batteryFallbackSeries.add(point);
   }
 
-  return { series, powerEvents, preferredFuelPoints, batteryFallbackPoints };
+  const cleanedSeries = filterTransientFuelSpikes(series);
+  batteryFallbackPoints = cleanedSeries.filter((point) => batteryFallbackSeries.has(point)).length;
+  preferredFuelPoints = cleanedSeries.length - batteryFallbackPoints;
+  return { series: cleanedSeries, powerEvents, preferredFuelPoints, batteryFallbackPoints };
+}
+
+/** Reject sharp, brief rises or dips only when actual readings confirm recovery. */
+function filterTransientFuelSpikes(series) {
+  const recoveryWindowMs = 60 * 1000;
+  const maxBaselineAgeMs = 20 * 60 * 1000;
+  const cleaned = [];
+
+  for (let i = 0; i < series.length; i++) {
+    const point = series[i];
+    const baseline = cleaned[cleaned.length - 1];
+    const baselineAge = baseline ? point.timestamp - baseline.timestamp : Infinity;
+    const change = baseline ? point.fuel - baseline.fuel : 0;
+    const direction = change >= 0 ? 1 : -1;
+    const minChange = baseline
+      ? Math.max(25, baseline.fuel * (direction > 0 ? 0.05 : 0.2))
+      : Infinity;
+
+    if (baseline && baselineAge >= 0 && baselineAge <= maxBaselineAgeMs &&
+        Math.abs(change) >= minChange) {
+      const tolerance = direction > 0
+        ? Math.max(5, baseline.fuel * 0.02)
+        : Math.max(10, baseline.fuel * 0.1);
+      let recoveredAt = -1;
+      for (let j = i + 1; j < series.length; j++) {
+        const elapsed = series[j].timestamp - point.timestamp;
+        if (elapsed < 0 || elapsed > recoveryWindowMs) break;
+        if (Math.abs(series[j].fuel - baseline.fuel) <= tolerance) {
+          recoveredAt = j;
+          break;
+        }
+        if (direction * (series[j].fuel - baseline.fuel) < minChange) break;
+      }
+      if (recoveredAt !== -1) {
+        i = recoveredAt - 1;
+        continue;
+      }
+    }
+    cleaned.push(point);
+  }
+  return cleaned;
 }
 
 /**
@@ -1116,14 +1168,17 @@ function resolveFuelCalibration(sensorKeys) {
 /**
  * Convert raw fuel ADC from mV → V when calibration uses volts.
  * Teltonika devices transmit IO analog inputs in mV (e.g. IO9 = 4087 mV = 4.087 V).
- * If calibrationMaxX ≤ 20 and rawValue is 100× larger but rawValue/1000 is within
- * 1.5× of calibrationMaxX, the value is in mV and needs ÷1000 before calibration.
+ * Known mV sources (IO9 Params) bypass unit inference, including near-zero values.
  *
  * @param {number} rawValue
  * @param {number} calibrationMaxX   max x from calibration curve (Infinity if no calibration)
+ * @param {boolean} [isMillivolts=false] whether the source explicitly reports mV
  * @returns {number} value in calibration units (V if calibration is V-based)
  */
-function normalizeFuelRaw(rawValue, calibrationMaxX) {
+function normalizeFuelRaw(rawValue, calibrationMaxX, isMillivolts = false) {
+  if (isMillivolts && Number.isFinite(calibrationMaxX) && calibrationMaxX > 0 && calibrationMaxX <= 20) {
+    return rawValue / 1000;
+  }
   if (
     calibrationMaxX !== null &&
     calibrationMaxX !== Infinity &&
@@ -1228,8 +1283,8 @@ function getParamValue(paramsObj, key) {
  * Priority:
  *  a) Params["66"]   — vehicle/generator battery in V → × 1000 → mV
  *  b) PowerVolt column — dedicated external supply voltage field in mV
- *     (covers 12V systems: 9000–18000 and 24V systems: up to 30000)
- *  c) Battery column — only when it reads in the 9–30 V range (9000–30000 mV),
+ *     (covers 12V systems: 11000–18000 and 24V systems: up to 30000)
+ *  c) Battery column — only when it reads in the 11–30 V range (11000–30000 mV),
  *     indicating the device is reporting external supply voltage rather than
  *     fuel ADC (fuel ADC devices stay below 5000).
  *
@@ -1246,25 +1301,25 @@ function calculateBatteryHealth(rows) {
   for (let i = rows.length - 1; i >= 0; i--) {
     const p = parseParams(rows[i].params);
     const b66 = getParamValue(p, '66');
-    if (b66 !== null && b66 >= 9 && b66 <= 30) return round(b66 * 1000, 0);
+    if (b66 !== null && b66 >= 11 && b66 <= 30) return round(b66 * 1000, 0);
   }
 
   // Fallback: last row dedicated columns (for devices that report mV directly)
   const last = rows[rows.length - 1];
 
   const powerVoltRaw = parseNumeric(last.powerVolt);
-  if (powerVoltRaw !== null && powerVoltRaw >= 9000 && powerVoltRaw <= 30000) {
+  if (powerVoltRaw !== null && powerVoltRaw >= 11000 && powerVoltRaw <= 30000) {
     return round(powerVoltRaw, 0);
   }
 
   const batRaw = parseNumeric(last.battery);
-  if (batRaw !== null && batRaw >= 9000 && batRaw <= 30000) {
+  if (batRaw !== null && batRaw >= 11000 && batRaw <= 30000) {
     return round(batRaw, 0);
   }
 
   // Some Teltonika devices store IO66 (main voltage) in the backupBattery column
   const backupRaw = parseNumeric(last.backupBattery);
-  if (backupRaw !== null && backupRaw >= 9000 && backupRaw <= 30000) {
+  if (backupRaw !== null && backupRaw >= 11000 && backupRaw <= 30000) {
     return round(backupRaw, 0);
   }
 
@@ -1656,6 +1711,7 @@ module.exports = {
   applyCalibration,
   resolveFuelCalibration,
   buildFuelIgnitionSeries,
+  filterTransientFuelSpikes,
   smoothFuelIgnitionSeries,
   extractFuelSeries,
   detectIgnitionTransitions,
