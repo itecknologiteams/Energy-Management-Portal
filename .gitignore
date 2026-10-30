@@ -1,4 +1,6 @@
 project/node_modules
 # Dashboard alert rules saved by the API at runtime
 project/data/
+# Local secrets (SMTP password etc.), loaded before project/.env
+project/.env.local
 frontend/node_modules

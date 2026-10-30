@@ -5,7 +5,8 @@
  * each vehicle's current reading.
  *
  * A rule: { vehicleId (null = every vehicle in the fleet), metric
- * ('temperature'), operator ('above' | 'below'), threshold (°C), enabled }.
+ * ('temperature'), operator ('above' | 'below'), threshold (°C), emails
+ * (addresses alertNotifier mails on a new breach), enabled }.
  * Only readings from the last ALERT_STALE_MINUTES count, so a device that
  * went silent while hot does not keep an alert open indefinitely.
  */
@@ -24,6 +25,9 @@ const {
 
 const METRICS = ['temperature'];
 const OPERATORS = ['above', 'below'];
+const MAX_EMAILS_PER_RULE = 10;
+// Deliberately plain: one @, no spaces, a dot in the domain
+const EMAIL_PATTERN = /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/;
 
 /**
  * Validate rule fields from a request body. With `partial`, only the fields
@@ -68,6 +72,21 @@ function validateRuleFields(body, fleetVehicleIds, partial = false) {
       if (!fleetVehicleIds.includes(vehicleId)) throw new ValidationError('vehicleId is not a vehicle of this fleet', 'vehicleId');
       fields.vehicleId = vehicleId;
     }
+  }
+
+  if (!partial || has('emails')) {
+    // Accept an array or a comma/semicolon/space-separated string
+    const raw = body?.emails ?? [];
+    const list = (Array.isArray(raw) ? raw : String(raw).split(/[,;\s]+/))
+      .map((e) => String(e).trim().toLowerCase())
+      .filter(Boolean);
+    const emails = [...new Set(list)];
+    const invalid = emails.find((e) => e.length > 254 || !EMAIL_PATTERN.test(e));
+    if (invalid) throw new ValidationError(`Not a valid email address: ${invalid}`, 'emails');
+    if (emails.length > MAX_EMAILS_PER_RULE) {
+      throw new ValidationError(`At most ${MAX_EMAILS_PER_RULE} email addresses per alert`, 'emails');
+    }
+    fields.emails = emails;
   }
 
   if (!partial || has('enabled')) {

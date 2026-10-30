@@ -59,6 +59,13 @@ function update(change) {
 }
 
 /**
+ * @returns {Promise<Object>} every fleet's rules, keyed by fleet ID
+ */
+async function listAllRules() {
+  return readAll();
+}
+
+/**
  * @param {number} fleetId
  * @returns {Promise<Object[]>} the fleet's rules, oldest first
  */
@@ -114,6 +121,8 @@ function deleteRule(fleetId, ruleId) {
 }
 
 module.exports = {
+  RULES_FILE,
+  listAllRules,
   listRules,
   createRule,
   updateRule,

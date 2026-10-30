@@ -1,10 +1,14 @@
 'use strict';
 
 // Load environment variables first — before any other module reads process.env
+// .env.local (untracked secrets such as SMTP_PASSWORD) is read first; dotenv
+// never overrides a value already set, so it wins over .env.
+require('dotenv').config({ path: require('path').join(__dirname, '..', '.env.local') });
 require('dotenv').config();
 
 const app = require('./app');
 const logger = require('./utils/logger');
+const alertNotifier = require('./services/alertNotifier');
 const { getPool: getCrmPool, closePool: closeCrmPool } = require('./db/crmDb');
 const { getPool: getTrackingPool, closePool: closeTrackingPool } = require('./db/trackingDb');
 
@@ -68,6 +72,7 @@ async function startServer() {
  */
 async function gracefulShutdown(server, signal) {
   logger.info(`${signal} received — starting graceful shutdown...`);
+  alertNotifier.stop();
 
   // Close HTTP server first (stop accepting new connections)
   server.close(async () => {
@@ -109,6 +114,9 @@ async function start() {
 
     // Start HTTP server
     const server = await startServer();
+
+    // Email alert rule breaches in the background (off without SMTP settings)
+    alertNotifier.start();
 
     // Register shutdown handlers
     process.on('SIGTERM', () => gracefulShutdown(server, 'SIGTERM'));

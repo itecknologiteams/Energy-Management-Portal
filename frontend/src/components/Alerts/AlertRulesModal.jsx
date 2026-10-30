@@ -27,7 +27,10 @@ const AlertRulesModal = ({ isOpen, onClose, fleetId, triggered = [], onRulesChan
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-  const [form, setForm] = useState({ vehicleId: 'all', operator: 'above', threshold: '50' });
+  const [form, setForm] = useState({ vehicleId: 'all', operator: 'above', threshold: '50', emails: '' });
+  // Rule whose email list is being edited, and the draft text
+  const [editingEmails, setEditingEmails] = useState(null);
+  const [emailDraft, setEmailDraft] = useState('');
   const [permission, setPermission] = useState(notificationsSupported ? Notification.permission : 'unsupported');
 
   const load = useCallback(async () => {
@@ -78,9 +81,18 @@ const AlertRulesModal = ({ isOpen, onClose, fleetId, triggered = [], onRulesChan
       operator: form.operator,
       threshold: Number(form.threshold),
       vehicleId: form.vehicleId === 'all' ? null : Number(form.vehicleId),
+      emails: form.emails,
       enabled: true,
-    }));
+    }).then(() => setForm((f) => ({ ...f, emails: '' }))));
   };
+
+  const startEditingEmails = (rule) => {
+    setEditingEmails(rule.id);
+    setEmailDraft((rule.emails || []).join(', '));
+  };
+
+  const saveEmails = (rule) =>
+    run(() => updateAlertRule(fleetId, rule.id, { emails: emailDraft }).then(() => setEditingEmails(null)));
 
   const requestPermission = async () => {
     try {
@@ -109,7 +121,7 @@ const AlertRulesModal = ({ isOpen, onClose, fleetId, triggered = [], onRulesChan
               Temperature Alerts
             </h3>
             <p className="text-sm text-gray-500 mt-1">
-              Get notified on the dashboard when a generator's temperature crosses a limit. Checked every minute.
+              Get notified on the dashboard — and by email, if you add addresses — when a generator's temperature crosses a limit. Checked every minute.
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-lg" aria-label="Close">
@@ -175,6 +187,18 @@ const AlertRulesModal = ({ isOpen, onClose, fleetId, triggered = [], onRulesChan
               />
             </label>
           </div>
+          <label className="block text-xs text-gray-500 mt-3">
+            Email to <span className="text-gray-400">(optional, separate addresses with commas)</span>
+            <input
+              type="text"
+              inputMode="email"
+              autoComplete="off"
+              placeholder="ops@company.com, manager@company.com"
+              className={`${fieldClass} mt-1`}
+              value={form.emails}
+              onChange={(e) => setForm({ ...form, emails: e.target.value })}
+            />
+          </label>
           <div className="flex justify-end mt-3">
             <button type="submit" className="btn btn-primary" disabled={saving || loading}>
               <i className="fas fa-plus"></i>
@@ -208,6 +232,37 @@ const AlertRulesModal = ({ isOpen, onClose, fleetId, triggered = [], onRulesChan
                   <p className={`text-xs ${rule.enabled ? 'text-gray-500' : 'text-gray-400'}`}>
                     Temperature {rule.operator} {rule.threshold} °C
                   </p>
+                  {editingEmails === rule.id ? (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <input
+                        type="text"
+                        inputMode="email"
+                        autoComplete="off"
+                        aria-label="Email addresses"
+                        placeholder="Leave empty for no emails"
+                        className={`${fieldClass} py-1 text-xs`}
+                        value={emailDraft}
+                        onChange={(e) => setEmailDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveEmails(rule); }}
+                      />
+                      <button type="button" className="text-xs font-semibold text-orange-600 hover:underline" disabled={saving} onClick={() => saveEmails(rule)}>
+                        Save
+                      </button>
+                      <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => setEditingEmails(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-xs text-gray-500 hover:text-orange-600 mt-0.5 text-left truncate max-w-full"
+                      onClick={() => startEditingEmails(rule)}
+                      title="Change email recipients"
+                    >
+                      <i className="fas fa-envelope mr-1"></i>
+                      {rule.emails?.length ? rule.emails.join(', ') : 'No emails — add'}
+                    </button>
+                  )}
                 </div>
                 {rule.enabled && isTriggered(rule) && (
                   <span className="text-xs font-semibold text-red-600 bg-red-50 rounded-full px-2 py-0.5 whitespace-nowrap">
