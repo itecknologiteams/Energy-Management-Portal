@@ -41,6 +41,7 @@ const {
   TEMPERATURE_SCALE,
   TEMPERATURE_MIN_C,
   TEMPERATURE_MAX_C,
+  TRACKING_TIME_OFFSET_MS,
 } = require('../constants');
 
 // ─── Multi-layer fuel detection constants ────────────────────────────────────
@@ -63,6 +64,7 @@ const MIN_VALID_FUEL_READING     = 10;   // L — discard ADC-near-zero garbage 
 const POST_RUN_GUARD_MINUTES     = 30;   // min — suppress theft if generator ran recently
 const MIN_RUN_DURATION_MS        = 60 * 1000; // ms — minimum ON period to count as a run
 const MIN_BACKUP_VOLT_MV         = 10;        // mV — treat ignition as OFF if backup battery ≤ this
+const MIN_MAIN_VOLT_FOR_FUEL     = 6;         // V — below this io66 the fuel probe has no power
 const BASELINE_LOOKBACK_MS       = 60 * 60 * 1000; // ms — window behind drop to scan for baseline support (wide enough for devices that report every ~15 min, not just dense ones)
 const MIN_BASELINE_SUSTAINED_MS  = 20 * 60 * 1000; // ms — baseline must be present for this long to be real
 const MIN_LOGGED_RUN_CONSUMPTION = 5;    // L — minimum per-run drop worth surfacing as a "Fuel Used" log entry
@@ -87,8 +89,10 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     return createEmptyAnalytics();
   }
 
-  // Drop records with timestamps in the future (pre-loaded test data / device clock drift)
-  const now = Date.now();
+  // Drop records with timestamps in the future (pre-loaded test data / device clock drift).
+  // "Now" is taken on the same PKT-as-UTC clock the timestamps use; comparing
+  // against real UTC dropped the latest 5 hours of every day.
+  const now = Date.now() + TRACKING_TIME_OFFSET_MS;
   const trackingRowsFiltered = trackingRows.filter(
     (r) => new Date(r.timestamp).getTime() <= now
   );
@@ -133,8 +137,9 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     };
   }
 
-  const fuelCalibration = resolveFuelCalibration(sensorKeys);
-  const fuelSensorKey   = sensorKeys?.fuelKeys?.[0] ?? null;
+  const fuelSensor      = resolveFuelSensor(sensorKeys);
+  const fuelCalibration = fuelSensor?.calibration ?? null;
+  const fuelSensorKey   = fuelSensor ? fuelSensor.key : (sensorKeys?.fuelKeys?.[0] ?? null);
   const calibrationMaxX = fuelCalibration
     ? Math.max(...fuelCalibration.map((p) => p.x))
     : Infinity;
@@ -161,7 +166,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
 
   // Build merged series over all rows (warmup + tracking)
   const allRows = [...warmupRows, ...trackingRows];
-  const { series: rawSeries, powerEvents, preferredFuelPoints, batteryFallbackPoints } = buildFuelIgnitionSeries(allRows, fuelCalibration, fuelSensorKey, calibrationMaxX);
+  const { series: rawSeries, powerEvents, preferredFuelPoints, batteryFallbackPoints, latestReading } = buildFuelIgnitionSeries(allRows, fuelCalibration, fuelSensorKey, calibrationMaxX, fuelSensor);
   const smoothed   = smoothFuelIgnitionSeries(rawSeries);
 
   // dayStart is used to exclude warmup-period events from the results
@@ -247,7 +252,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     generatorStopTime:  calculateGeneratorStopTime(trackingRows),
     generatorRuns,
     workTime:           calculateWorkTime(trackingRows),
-    fuel:               getFinalFuelValue(rawSeries),
+    fuel:               latestReading ? round(latestReading.fuel, 2) : getFinalFuelValue(rawSeries),
     temperature:        calculateTemperature(trackingRows),
   };
 }
@@ -271,9 +276,13 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
  * @param {Array|null}  calibration
  * @param {string|null} fuelSensorKey  e.g. "9" derived from "io9"
  * @param {number}      calibrationMaxX  max x from calibration curve
+ * @param {Object|null} [fuelSensor]  from resolveFuelSensor(); when it has a
+ *        calibration or formula, step 0 replaces steps 1–4
  * @returns {Array<{timestamp:Date, fuel:number, ignition:0|1|null}>}
  */
-function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMaxX) {
+function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMaxX, fuelSensor = null) {
+  const configured = Boolean(fuelSensor && (fuelSensor.calibration || fuelSensor.formula));
+  let latestReading = null; // last configured-sensor reading, before the noise floor
   const series = [];
   const powerEvents = []; // timestamps of high-battery exclusions (device power events)
   let preferredFuelPoints = 0; // points from FuelLevel or Params (reliable)
@@ -286,14 +295,36 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
 
     let usedBatteryFallback = false;
 
+    // With the main supply gone the fuel probe is unpowered and reads garbage
+    // (GENSET-TCM, Oct 7: io66 = 0 V, then a sudden "empty tank").
+    const mainVolt = getParamValue(parseParams(row.params), '66');
+    if (mainVolt !== null && mainVolt < MIN_MAIN_VOLT_FOR_FUEL) {
+      powerEvents.push(new Date(row.timestamp));
+      continue;
+    }
+
+    // 0. A sensor configured in VehicleSensors is read exactly as the GPS
+    //    server reads it (raw input → formula → calibration) and nothing else
+    //    is guessed for it. The FuelLevel column is not litres for these
+    //    devices — it carries a raw count or voltage (GENSET-TCM's "9719" is
+    //    ~245 L, the SV fleet's "2.88" is volts).
+    if (configured) {
+      const reading = readConfiguredFuel(row, fuelSensor, calibrationMaxX);
+      if (reading === null) continue;
+      fuel = reading.fuel;
+      // The tank's actual current level, as the GPS server shows it — kept even
+      // below MIN_VALID_FUEL_READING, which only guards event detection.
+      latestReading = { timestamp: new Date(row.timestamp), fuel };
+    }
+
     // 1. FuelLevel column (already litres)
     const fl = parseNumeric(row.fuelLevel);
-    if (fl !== null) {
+    if (fuel === null && !configured && fl !== null) {
       fuel = fl;
     }
 
     // 2. Params[fuelSensorKey] (raw ADC → calibrate)
-    if (fuel === null && fuelSensorKey) {
+    if (fuel === null && !configured && fuelSensorKey) {
       const params = parseParams(row.params);
       let pv = getParamValue(params, fuelSensorKey);
       if (pv !== null) {
@@ -379,7 +410,7 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
   const cleanedSeries = filterTransientFuelSpikes(series);
   batteryFallbackPoints = cleanedSeries.filter((point) => batteryFallbackSeries.has(point)).length;
   preferredFuelPoints = cleanedSeries.length - batteryFallbackPoints;
-  return { series: cleanedSeries, powerEvents, preferredFuelPoints, batteryFallbackPoints };
+  return { series: cleanedSeries, powerEvents, preferredFuelPoints, batteryFallbackPoints, latestReading };
 }
 
 /** Reject sharp, brief rises or dips only when actual readings confirm recovery. */
@@ -1151,18 +1182,103 @@ function detectFuelEvents(raw, filtered, dayStart, powerEvents = []) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function resolveFuelCalibration(sensorKeys) {
+  return resolveFuelSensor(sensorKeys)?.calibration ?? null;
+}
+
+/**
+ * The vehicle's fuel sensor as configured in VehicleSensors — where its raw
+ * value lives, its formula and its calibration, all from the SAME sensor row
+ * (a dual-tank vehicle must not read one tank through the other's curve).
+ * Prefers a sensor that can actually produce litres.
+ *
+ * @param {Object} sensorKeys - from sensorMapper.resolveSensorKeys()
+ * @returns {{key:string|null, source:'params'|'fuelLevel', formula:string|null,
+ *            calibration:Array|null}|null}
+ */
+function resolveFuelSensor(sensorKeys) {
   if (!sensorKeys?.byParam) return null;
-  for (const param of Object.keys(sensorKeys.byParam)) {
-    const info = sensorKeys.byParam[param];
-    if (
-      Array.isArray(info?.calibration) &&
-      info.calibration.length >= 2 &&
-      sensorKeys.fuelKeys?.includes(info.sensorKey)
-    ) {
-      return info.calibration;
+  const fuelSensors = Object.values(sensorKeys.byParam).filter(
+    (info) => info?.sensorKey && sensorKeys.fuelKeys?.includes(info.sensorKey)
+  );
+  const toSensor = (info) => {
+    const calibration = Array.isArray(info.calibration) &&
+      info.calibration.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)).length >= 2
+      ? info.calibration.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+      : null;
+    const formula = String(info.formula || '').trim() || null;
+    return { key: info.sensorKey, source: info.source || 'params', formula, calibration };
+  };
+  const usable = fuelSensors.map(toSensor);
+  return usable.find((s) => s.calibration || s.formula) || usable[0] || null;
+}
+
+/**
+ * Evaluate a VehicleSensors formula such as "x/10", "x/1000" or
+ * "(115.38-0.0153*x)" for one raw value. Only arithmetic on x is allowed.
+ *
+ * @param {string} formula
+ * @param {number} x
+ * @returns {number|null}
+ */
+function applyFormula(formula, x) {
+  const expr = formula.toLowerCase().replace(/\s+/g, '');
+  if (!/^[0-9x+\-*/().]+$/.test(expr)) return null;
+  try {
+    // eslint-disable-next-line no-new-func
+    const value = Function('x', `return (${expr});`)(x);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One row's fuel from a configured sensor, the way the GPS server computes it:
+ * raw input → formula → calibration.
+ *
+ * Raw input: Params[key] for an ioN sensor; the FuelLevel column for a
+ * "fuel1" sensor. Devices that send no Params at all carry the sensor in
+ * the FuelLevel column, or failing that the Battery column (kept only when
+ * it sits inside the calibration range, as the generic fallback does).
+ *
+ * @param {Object} row - tracking row
+ * @param {Object} fuelSensor - from resolveFuelSensor()
+ * @param {number} calibrationMaxX
+ * @returns {{raw:number, fuel:number}|null} null when the row has no usable reading
+ */
+function readConfiguredFuel(row, fuelSensor, calibrationMaxX) {
+  const { key, source, formula, calibration } = fuelSensor;
+  let raw = null;
+
+  if (source === 'fuelLevel') {
+    raw = parseNumeric(row.fuelLevel);
+  } else if (row.params) {
+    raw = getParamValue(parseParams(row.params), key);
+  } else {
+    raw = parseNumeric(row.fuelLevel);
+    // Battery only when a calibration range can tell a fuel count from a
+    // supply voltage (BJC-567's 13228 mV is its battery, not its tank).
+    if (raw === null && calibration) {
+      const bat = parseNumeric(row.battery);
+      if (bat !== null && normalizeFuelRaw(bat, calibrationMaxX) <= calibrationMaxX * 1.1) raw = bat;
     }
   }
-  return null;
+  if (raw === null) return null;
+
+  // A 0 from a probe whose curve starts above 0 means "no reading";
+  // calibrating it would clamp to a full or empty tank (GENSET-TCM, Oct 10).
+  if (raw === 0 && calibration && Math.min(...calibration.map((c) => c.x)) > 0) return null;
+
+  // The formula converts units itself (x/1000: mV → V); only without one is
+  // the mV-vs-volts guess applied.
+  let value = formula
+    ? applyFormula(formula, raw)
+    : normalizeFuelRaw(raw, calibrationMaxX, source === 'params' && String(key) === '9');
+  if (value === null) return null;
+  if (calibration) value = applyCalibration(value, calibration);
+
+  // A tank cannot hold negative fuel; that is a formula fed the wrong input
+  return Number.isFinite(value) && value >= 0 ? { raw, fuel: value } : null;
 }
 
 /**
@@ -1705,11 +1821,15 @@ module.exports = {
   parseIgnitionState,
   effectiveIgnition,
   calculateGeneratorRunIntervals,
+  calculateTemperature,
   parseParams,
   getParamValue,
   parseNumeric,
   applyCalibration,
   resolveFuelCalibration,
+  resolveFuelSensor,
+  readConfiguredFuel,
+  applyFormula,
   buildFuelIgnitionSeries,
   filterTransientFuelSpikes,
   smoothFuelIgnitionSeries,

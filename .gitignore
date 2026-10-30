@@ -1,2 +1,4 @@
 project/node_modules
+# Dashboard alert rules saved by the API at runtime
+project/data/
 frontend/node_modules

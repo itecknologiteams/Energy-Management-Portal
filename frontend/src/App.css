@@ -951,6 +951,11 @@ body {
     color: var(--navy-900);
 }
 
+.alert-icon.red {
+    background: var(--red-100);
+    color: var(--red-500);
+}
+
 .alert-content {
     flex: 1;
     min-width: 0;

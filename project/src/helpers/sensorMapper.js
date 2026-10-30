@@ -11,6 +11,7 @@ const {
   SENSOR_TYPE_ENGINE_HOURS,
   SENSOR_TYPE_GENERATOR,
   DEFAULT_SENSOR_KEYS,
+  FUEL_LEVEL_SENSOR_KEY,
 } = require('../constants');
 
 /**
@@ -144,11 +145,16 @@ function resolveSensorKeys(mappingRows) {
 
   for (const row of mappingRows) {
     const sensorType = detectSensorType(row.Name, row.param);
-    const sensorKey = extractSensorKey(row.param);
+    // "fuel1"/"fuel2" (and a blank param) name the device's own fuel input,
+    // which the tracking tables keep in the FuelLevel column — not Params["1"].
+    const isColumnSensor = !row.param || /^fuel\d*$/i.test(String(row.param).trim());
+    const sensorKey = isColumnSensor ? FUEL_LEVEL_SENSOR_KEY : extractSensorKey(row.param);
 
     const sensorInfo = {
       vehicleId: row.VehicleId,
       name: row.Name,
+      type: sensorType,
+      source: isColumnSensor ? 'fuelLevel' : 'params',
       param: row.param,
       sensorKey,
       unit: row.Unit,
@@ -156,7 +162,7 @@ function resolveSensorKeys(mappingRows) {
       min: row.Min,
       max: row.Max,
       formula: row.Formula,
-      ioKey: sensorKey ? `io${sensorKey}` : null,
+      ioKey: sensorKey && !isColumnSensor ? `io${sensorKey}` : null,
     };
 
     result.byParam[row.param] = sensorInfo;

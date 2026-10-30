@@ -67,7 +67,9 @@ async function getTrackingData(vehicleId, date) {
         ${TRACKING_PARAMS_COLUMN} AS params
       FROM dbo.${tableName}
       WHERE ${TRACKING_VEHICLE_COLUMN} = @vehicleId
-      ORDER BY ${TRACKING_TIMESTAMP_COLUMN} ASC
+      -- Devices that upload in batches share one ServerTime; GpsTime puts
+      -- them in the order they were measured, so the last row is the latest.
+      ORDER BY ${TRACKING_TIMESTAMP_COLUMN} ASC, GpsTime ASC
     `;
 
     const result = await pool
@@ -263,6 +265,56 @@ async function findLatestDateWithData(vehicleId, date, lookbackDays = 30) {
   return null;
 }
 
+/**
+ * Latest tracking row of each vehicle on a date — one query for a whole fleet.
+ * Used by alert checks, which only need each vehicle's current reading.
+ *
+ * @param {number[]} vehicleIds — Vehicle IDs (V_Id)
+ * @param {string} date — Date in format "YYYY-MM-DD"
+ * @returns {Promise<Map<number, {timestamp: Date, params: string}>>} empty when the day's table does not exist
+ */
+async function getLatestRowsForVehicles(vehicleIds, date) {
+  if (!validateDateFormat(date)) {
+    throw new Error(`Invalid date format: ${date}. Expected YYYY-MM-DD.`);
+  }
+
+  // IDs are inlined, so only plain positive integers may pass
+  const ids = [...new Set(vehicleIds.map((id) => parseInt(id, 10)))].filter((id) => id > 0);
+  const latest = new Map();
+  if (ids.length === 0) return latest;
+
+  const pool = await getPool();
+  const tableName = dateToTableName(date);
+  if (!(await tableExists(pool, tableName))) return latest;
+
+  try {
+    const result = await pool.request().query(`
+      SELECT vehicleId, timestamp, params
+      FROM (
+        SELECT
+          ${TRACKING_VEHICLE_COLUMN} AS vehicleId,
+          ${TRACKING_TIMESTAMP_COLUMN} AS timestamp,
+          ${TRACKING_PARAMS_COLUMN} AS params,
+          ROW_NUMBER() OVER (
+            PARTITION BY ${TRACKING_VEHICLE_COLUMN}
+            ORDER BY ${TRACKING_TIMESTAMP_COLUMN} DESC, GpsTime DESC
+          ) AS rn
+        FROM dbo.${tableName}
+        WHERE ${TRACKING_VEHICLE_COLUMN} IN (${ids.join(',')})
+      ) latest
+      WHERE rn = 1
+    `);
+
+    for (const row of result.recordset) {
+      latest.set(parseInt(row.vehicleId, 10), { timestamp: row.timestamp, params: row.params });
+    }
+    return latest;
+  } catch (err) {
+    console.error('[trackingRepository] Error fetching latest rows:', err.message);
+    throw new DatabaseError(`Failed to retrieve latest tracking rows on ${date}`, err);
+  }
+}
+
 // Re-export the error class for consumers
 const { TrackingTableNotFoundError: TrackingTableNotFoundErrorClass } = require('../utils/errors');
 
@@ -271,5 +323,6 @@ module.exports = {
   getTrackingDataInRange,
   getTrackingDataCount,
   findLatestDateWithData,
+  getLatestRowsForVehicles,
   TrackingTableNotFoundError: TrackingTableNotFoundErrorClass,
 };

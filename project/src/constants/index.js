@@ -35,6 +35,10 @@ const TRACKING_DATA_TABLE_PREFIX = 'TrackData';
 // ─── Tracking Table Column Names (from Part 2 discovery) ──────────────────────
 // CONFIRMED: Tracking table has dedicated columns for common sensors
 
+// Tracking timestamps are PKT wall-clock values stored without a zone, which
+// the driver reads back as UTC — so they run 5 h ahead of the real UTC clock.
+const TRACKING_TIME_OFFSET_MS = 5 * 60 * 60 * 1000;
+
 const TRACKING_VEHICLE_COLUMN = 'V_Id';
 const TRACKING_TIMESTAMP_COLUMN = 'ServerTime';
 const TRACKING_PARAMS_COLUMN = 'Params';
@@ -66,6 +70,9 @@ const DEFAULT_SENSOR_KEYS = {
   generator: '236',     // io236 may contain generator state
 };
 
+// Sensor key used for fuel sensors read from the FuelLevel column ("fuel1" params)
+const FUEL_LEVEL_SENSOR_KEY = 'fuelLevel';
+
 // Temperature probe: Teltonika io72 (Dallas Temperature 1), reported in 0.1 °C.
 // Valid range is the DS18B20 probe's -55…125 °C; anything outside is a device
 // error code (850 not ready, 2000 read error, 3000 not connected, …).
@@ -73,6 +80,10 @@ const TEMPERATURE_PARAM_KEY = '72';
 const TEMPERATURE_SCALE = 0.1;
 const TEMPERATURE_MIN_C = -55;
 const TEMPERATURE_MAX_C = 125;
+
+// Alert checks ignore readings older than this, so a device that went
+// silent while breaching does not keep its alert open
+const ALERT_STALE_MINUTES = 60;
 
 // ─── Vehicles excluded from the Fuel Level History chart ────────────────────
 // These vehicles have VehicleSensors rows with calibration in the DB, but the
@@ -96,6 +107,7 @@ module.exports = {
   CRM_SENSOR_MAPPING_TABLE,
   CRM_FLEET_LOGIN_TABLE,
   TRACKING_DATA_TABLE_PREFIX,
+  TRACKING_TIME_OFFSET_MS,
   TRACKING_VEHICLE_COLUMN,
   TRACKING_TIMESTAMP_COLUMN,
   TRACKING_PARAMS_COLUMN,
@@ -110,10 +122,12 @@ module.exports = {
   SENSOR_TYPE_ENGINE_HOURS,
   SENSOR_TYPE_GENERATOR,
   DEFAULT_SENSOR_KEYS,
+  FUEL_LEVEL_SENSOR_KEY,
   TEMPERATURE_PARAM_KEY,
   TEMPERATURE_SCALE,
   TEMPERATURE_MIN_C,
   TEMPERATURE_MAX_C,
+  ALERT_STALE_MINUTES,
   NO_FUEL_SENSOR_VEHICLE_IDS,
   DEBUG_MODE,
 };

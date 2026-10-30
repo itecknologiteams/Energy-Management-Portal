@@ -8,7 +8,9 @@ import GeneratorFuelChart from '../components/Dashboard/GeneratorFuelChart';
 import GeneratorBarChart from '../components/Dashboard/GeneratorBarChart';
 import GeneratorAccordion from '../components/Dashboard/GeneratorAccordion';
 import AlertsCard from '../components/Dashboard/AlertsCard';
+import AlertRulesModal from '../components/Alerts/AlertRulesModal';
 import { useAuth } from '../contexts/AuthContext';
+import useTemperatureAlerts, { alertKey, describeAlert } from '../hooks/useTemperatureAlerts';
 import { getDashboardData, getDashboardDataRange, formatApiError, ValidationError, NotFoundError } from '../services/api';
 
 // Build a YYYY-MM-DD string from a Date using the local timezone,
@@ -30,6 +32,38 @@ const Dashboard = ({ onNavigate }) => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterDateRange, setFilterDateRange] = useState({ start: toLocalDateStr(new Date()), end: toLocalDateStr(new Date()) }); // updated on each fetchData run
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showAlertRules, setShowAlertRules] = useState(false);
+
+  // Temperature alert rules: announce each new breach once — as a toast and,
+  // when the user has allowed it, a browser notification
+  const { triggered: temperatureAlerts, refresh: refreshTemperatureAlerts } = useTemperatureAlerts(
+    fleetId,
+    (alert) => {
+      const message = `${alert.vehicleName}: ${describeAlert(alert)}`;
+      showNotification(message, 'error');
+      if ('Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('Temperature alert', { body: message, tag: alertKey(alert) });
+        } catch {
+          // Some browsers only allow notifications from a service worker
+        }
+      }
+    }
+  );
+
+  // Active breaches, shaped for the header bell and the alerts card
+  const temperatureAlertItems = temperatureAlerts.map((a) => ({
+    id: `temperature-${alertKey(a)}`,
+    type: 'alert',
+    icon: 'fa-temperature-high',
+    iconClass: 'red',
+    title: a.vehicleName,
+    message: describeAlert(a),
+    description: describeAlert(a),
+    // Tracking times are PKT wall-clock values read back as UTC
+    time: new Date(a.at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
+  }));
+  const allAlerts = [...temperatureAlertItems, ...(dashboardData?.alerts || [])];
 
   // Update date display
   useEffect(() => {
@@ -383,13 +417,21 @@ const Dashboard = ({ onNavigate }) => {
         onClose={handleLogoutCancel}
         onConfirm={handleLogoutConfirm}
       />
+      <AlertRulesModal
+        isOpen={showAlertRules}
+        onClose={() => setShowAlertRules(false)}
+        fleetId={fleetId}
+        triggered={temperatureAlerts}
+        onRulesChanged={refreshTemperatureAlerts}
+      />
       <main className="main-content">
         <Header
           filter={filter}
           setFilter={setFilter}
           onExport={handleExport}
           dateInfo={dateInfo}
-          alerts={dashboardData?.alerts}
+          alerts={allAlerts}
+          onManageAlerts={() => setShowAlertRules(true)}
         />
         <div className="dashboard-body" style={{ position: 'relative' }}>
           {loading && <LoadingOverlay />}
@@ -425,7 +467,7 @@ const Dashboard = ({ onNavigate }) => {
                     />
                   </div>
                 </div>
-                <AlertsCard alerts={dashboardData?.alerts} />
+                <AlertsCard alerts={allAlerts} />
               </div>
             </>
           )}

@@ -140,7 +140,8 @@ const fetchApi = async (endpoint, options = {}) => {
       if (isJson) {
         try {
           errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
+          // The backend nests app errors as { error: { message } }
+          errorMessage = errorData.message || errorData.error?.message || errorMessage;
         } catch (e) {
           // Response body is not valid JSON
         }
@@ -201,6 +202,31 @@ const fetchApi = async (endpoint, options = {}) => {
 export const checkHealth = () => {
   return fetchApi('/health');
 };
+
+// Alert Rules — temperature thresholds set from the dashboard
+export const getAlertRules = (fleetId) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/alert-rules`);
+
+export const createAlertRule = (fleetId, rule) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/alert-rules`, {
+    method: 'POST',
+    body: JSON.stringify(rule),
+  });
+
+export const updateAlertRule = (fleetId, ruleId, changes) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/alert-rules/${encodeURIComponent(ruleId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(changes),
+  });
+
+export const deleteAlertRule = (fleetId, ruleId) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/alert-rules/${encodeURIComponent(ruleId)}`, {
+    method: 'DELETE',
+  });
+
+// Rules that the fleet's current readings break right now
+export const checkFleetAlerts = (fleetId) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/alerts/check`);
 
 // Fleet Endpoints
 export const getFleetDetails = (fleetId = 1735) => {
@@ -374,7 +400,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           // Core metrics from analytics
           batteryHealth: analytics.batteryHealth ?? null,
           gpsBackupBattery: analytics.gpsBackupBattery ?? null,
-          fuelLevel: analytics.fuel || '-',
+          fuelLevel: analytics.fuel ?? '-',
           temperature: analytics.temperature ?? null,
           fuelConsumption: analytics.fuelConsumption || 0,
           fuelTheft: analytics.fuelTheft || 0,
@@ -572,7 +598,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       type:             'Generator',
       batteryHealth:    analytics.batteryHealth    ?? null,
       gpsBackupBattery: analytics.gpsBackupBattery ?? null,
-      fuelLevel:        analytics.fuel          || '-',
+      fuelLevel:        analytics.fuel          ?? '-',
       temperature:      analytics.temperature   ?? null,
       fuelConsumption:  analytics.fuelConsumption  || 0,
       fuelTheft:        analytics.fuelTheft        || 0,

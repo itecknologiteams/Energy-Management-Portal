@@ -475,7 +475,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
             {/* The device sent nothing in this period — readings are its last ones */}
             {item.lastUpdate && (
               <p className="text-xs text-amber-600 truncate mt-0.5" title="No data received in this period; showing the last data from the GPS server">
-                Last data: {new Date(item.lastUpdate).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}
+                Last data: {new Date(item.lastUpdate).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' })}
               </p>
             )}
           </div>

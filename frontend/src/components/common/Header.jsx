@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
+const Header = ({ filter, setFilter, onExport, dateInfo, alerts, onManageAlerts }) => {
   const filters = ['Today', 'This Week', 'This Month', 'Last Month'];
   const { user, fleetId } = useAuth();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -106,6 +106,11 @@ const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
           <i className="fas fa-search"></i>
           <input type="text" placeholder="Search..." />
         </div>
+        {onManageAlerts && (
+          <button className="icon-btn" onClick={onManageAlerts} title="Temperature alerts" aria-label="Temperature alerts">
+            <i className="fas fa-temperature-high"></i>
+          </button>
+        )}
         <div className="notification-wrapper" ref={notificationRef}>
           <button className="icon-btn" onClick={handleNotificationClick}>
             <i className="fas fa-bell"></i>

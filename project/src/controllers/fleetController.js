@@ -280,23 +280,12 @@ async function getVehicleFuelDebug(req, res, next) {
 
     const sensorKeys = sensorMapper.resolveSensorKeys(mappingRows);
 
-    // Get raw fuel calibration from sensorKeys
-    let fuelCalibration = null;
-    if (sensorKeys?.byParam) {
-      for (const param of Object.keys(sensorKeys.byParam)) {
-        const info = sensorKeys.byParam[param];
-        if (
-          Array.isArray(info?.calibration) &&
-          info.calibration.length >= 2 &&
-          sensorKeys.fuelKeys?.includes(info.sensorKey)
-        ) {
-          fuelCalibration = info.calibration;
-          break;
-        }
-      }
-    }
+    // Fuel sensor (key, formula, calibration) from one VehicleSensors row
+    const fuelSensor = analyticsService.resolveFuelSensor(sensorKeys);
+    const fuelCalibration = fuelSensor?.calibration ?? null;
+    const configured = Boolean(fuelSensor && (fuelSensor.calibration || fuelSensor.formula));
 
-    const fuelSensorKey = sensorKeys?.fuelKeys?.[0] ?? null;
+    const fuelSensorKey = fuelSensor ? fuelSensor.key : (sensorKeys?.fuelKeys?.[0] ?? null);
     const calibrationMaxX = fuelCalibration
       ? Math.max(...fuelCalibration.map((p) => p.x))
       : 6000; // default max ADC value when no calibration exists
@@ -307,7 +296,18 @@ async function getVehicleFuelDebug(req, res, next) {
     let calibratedFuel = null;
     let fuelSource = null;
 
-    if (latestRow) {
+    // Configured sensor: the same raw → formula → calibration path the
+    // dashboard uses (and the GPS server shows)
+    if (latestRow && configured) {
+      const reading = analyticsService.readConfiguredFuel(latestRow, fuelSensor, calibrationMaxX);
+      rawFuelValue = reading?.raw ?? null;
+      calibratedFuel = reading?.fuel ?? null;
+      fuelSource = fuelSensor.source === 'fuelLevel'
+        ? 'FuelLevel column (fuel1 sensor)'
+        : `Params[io${fuelSensor.key}]${fuelSensor.formula ? ` with formula ${fuelSensor.formula}` : ''}`;
+    }
+
+    if (latestRow && !configured) {
       // Check sources in same priority as buildFuelIgnitionSeries
       // 1. FuelLevel column
       if (latestRow.fuelLevel !== null && latestRow.fuelLevel !== undefined) {
@@ -455,23 +455,11 @@ async function getVehicleFuelSeries(req, res, next) {
 
     const sensorKeys = sensorMapper.resolveSensorKeys(mappingRows);
 
-    // Get fuel calibration
-    let fuelCalibration = null;
-    if (sensorKeys?.byParam) {
-      for (const param of Object.keys(sensorKeys.byParam)) {
-        const info = sensorKeys.byParam[param];
-        if (
-          Array.isArray(info?.calibration) &&
-          info.calibration.length >= 2 &&
-          sensorKeys.fuelKeys?.includes(info.sensorKey)
-        ) {
-          fuelCalibration = info.calibration;
-          break;
-        }
-      }
-    }
+    // Fuel sensor (key, formula, calibration) from one VehicleSensors row
+    const fuelSensor = analyticsService.resolveFuelSensor(sensorKeys);
+    const fuelCalibration = fuelSensor?.calibration ?? null;
 
-    const fuelSensorKey = sensorKeys?.fuelKeys?.[0] ?? null;
+    const fuelSensorKey = fuelSensor ? fuelSensor.key : (sensorKeys?.fuelKeys?.[0] ?? null);
     const calibrationMaxX = fuelCalibration
       ? Math.max(...fuelCalibration.map((p) => p.x))
       : 6000; // default max ADC value when no calibration exists
@@ -488,7 +476,7 @@ async function getVehicleFuelSeries(req, res, next) {
 
     // Build fuel series
     const { series: rawSeries, powerEvents } = buildFuelIgnitionSeries(
-      trackingRows, fuelCalibration, fuelSensorKey, calibrationMaxX
+      trackingRows, fuelCalibration, fuelSensorKey, calibrationMaxX, fuelSensor
     );
 
     // Get smoothed series
