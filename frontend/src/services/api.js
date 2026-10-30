@@ -203,19 +203,19 @@ export const checkHealth = () => {
 };
 
 // Fleet Endpoints
-export const getFleetDetails = (fleetId = 1735) => {
+export const getFleetDetails = (fleetId) => {
   // Client-side validation for fleetId (must be positive integer)
   const validatedFleetId = validators.fleetId(fleetId);
   return fetchApi(`/api/fleets/${validatedFleetId}`);
 };
 
-export const getFleetVehicles = (fleetId = 1735) => {
+export const getFleetVehicles = (fleetId) => {
   // Client-side validation for fleetId (must be positive integer)
   const validatedFleetId = validators.fleetId(fleetId);
   return fetchApi(`/api/fleets/${validatedFleetId}/vehicles`);
 };
 
-export const getFleetVehiclesWithSensors = (fleetId = 1735) => {
+export const getFleetVehiclesWithSensors = (fleetId) => {
   // Client-side validation for fleetId (must be positive integer)
   const validatedFleetId = validators.fleetId(fleetId);
   return fetchApi(`/api/fleets/${validatedFleetId}/vehicles-with-sensors`);
@@ -223,7 +223,7 @@ export const getFleetVehiclesWithSensors = (fleetId = 1735) => {
 
 // includeLastKnown: vehicles with no data on `date` also get the last data the
 // GPS server received before it (a `lastKnown` block).
-export const getFleetAnalytics = (fleetId = 1735, date, includeLastKnown = false) => {
+export const getFleetAnalytics = (fleetId, date, includeLastKnown = false) => {
   // Client-side validation for fleetId
   const validatedFleetId = validators.fleetId(fleetId);
 
@@ -289,7 +289,7 @@ export const getVehicleFuelSeries = (vehicleId, date) => {
 };
 
 // Dashboard Data Aggregator - Combines multiple API calls for dashboard
-export const getDashboardData = async (fleetId = 1735, date) => {
+export const getDashboardData = async (fleetId, date) => {
   // Validate inputs before making any API calls
   const validatedFleetId = validators.fleetId(fleetId);
   const formattedDate = date || toLocalDateStr(new Date());
@@ -529,7 +529,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
   return Array.from(map.values());
 }
 
-export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) => {
+export const getDashboardDataRange = async (fleetId, startDate, endDate) => {
   const validatedFleetId = validators.fleetId(fleetId);
   const dates = buildDateRange(startDate, endDate);
 

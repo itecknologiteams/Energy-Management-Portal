@@ -18,6 +18,16 @@ Changes take effect within one monitor cycle, with no restart. If the file conta
 
 `alerts.json` is git-ignored because it contains the SMTP password. Instead of putting the password in the file, you can set `SMTP_PASSWORD` (also `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`) in `project/.env`. Environment values win over the file.
 
+## Keeping fleets separate
+
+Every login belongs to one fleet. Alerts never cross from one fleet to another:
+
+- **Portal:** the bell and the Alerts card show only the logged-in fleet's generators. A session without a valid fleet ID is sent back to the login page; it never falls back to another fleet's data.
+- **Email:** each monitor cycle checks one fleet at a time and builds one email containing only that fleet's generators. It goes only to that fleet's own list in `email.recipients.byFleet`.
+- **Fleet without a list:** a monitored fleet with no list of its own is **not emailed**. The backend logs a warning and shows it in `GET /api/alerts/status`.
+- **Default list:** `email.recipients.default` is used for fleets without a list only if you set `defaultForFleetsWithoutRecipients: true`. Use that only for an internal operations mailbox, never a customer address.
+- **Shared generators:** a generator that belongs to two fleets is reported to each fleet's own list separately.
+
 ## Settings reference
 
 | Setting | Meaning |
@@ -37,8 +47,9 @@ Changes take effect within one monitor cycle, with no restart. If the file conta
 | `email.enabled` | Master switch for sending email. |
 | `email.from` | Sender, e.g. `EMS Alerts <alerts@itecknologi.com>`. Must be allowed by the SMTP account. |
 | `email.subjectPrefix` | Text placed in front of every subject. |
-| `email.recipients.default` | `to` / `cc` lists used for any fleet without its own list. |
-| `email.recipients.byFleet` | Per-fleet `to` / `cc` lists, keyed by fleet ID. |
+| `email.recipients.byFleet` | Per-fleet `to` / `cc` lists, keyed by fleet ID. A fleet receives only its own generators' alerts. |
+| `email.recipients.default` | Internal list, used only for testing (`npm run alerts:test-email`) or when the next setting is `true`. |
+| `email.recipients.defaultForFleetsWithoutRecipients` | `false` (default): a fleet without its own list is not emailed. `true`: such fleets go to the default list. |
 | `email.smtp.host`, `port`, `secure` | SMTP server. Port 587 with `secure: false` (STARTTLS) for Office 365 or Gmail; port 465 with `secure: true` for implicit TLS. |
 | `email.smtp.auth.user`, `pass` | SMTP login. Leave `user` empty for an open internal relay. |
 | `email.smtp.tls.rejectUnauthorized` | Keep `true`. Set `false` only for an internal server with a self-signed certificate. |

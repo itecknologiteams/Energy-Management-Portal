@@ -41,7 +41,9 @@ const DEFAULTS = Object.freeze({
     enabled: false,
     from: '',
     subjectPrefix: '[EMS Alert]',
-    recipients: { default: { to: [], cc: [] }, byFleet: {} },
+    // Fleets are isolated: a fleet with no list of its own is NOT emailed
+    // unless defaultForFleetsWithoutRecipients is explicitly true.
+    recipients: { default: { to: [], cc: [] }, byFleet: {}, defaultForFleetsWithoutRecipients: false },
     smtp: {
       host: '',
       port: 587,
@@ -176,6 +178,7 @@ function validate(cfg) {
       cc: cleanAddressList(def.cc, 'email.recipients.default.cc', warnings),
     },
     byFleet: {},
+    defaultForFleetsWithoutRecipients: r.defaultForFleetsWithoutRecipients === true,
   };
   for (const [fleetId, entry] of Object.entries(isPlainObject(r.byFleet) ? r.byFleet : {})) {
     if (!isPlainObject(entry)) continue;
@@ -199,12 +202,21 @@ function validate(cfg) {
     if (!s.host) problems.push('email.smtp.host is empty');
     if (!Number.isInteger(s.port) || s.port < 1 || s.port > 65535) problems.push('email.smtp.port is invalid');
     if (!e.from) problems.push('email.from is empty');
-    const anyRecipient = e.recipients.default.to.length > 0 ||
-      Object.values(e.recipients.byFleet).some((f) => f.to.length > 0);
-    if (!anyRecipient) problems.push('no recipients configured');
+    const anyRecipient = Object.values(e.recipients.byFleet).some((f) => f.to.length > 0) ||
+      (e.recipients.defaultForFleetsWithoutRecipients && e.recipients.default.to.length > 0);
+    if (!anyRecipient) problems.push('no fleet has recipients (email.recipients.byFleet)');
     if (problems.length > 0) {
       errors.push(`${problems.join('; ')}; email disabled`);
       e.enabled = false;
+    }
+  }
+
+  // Tell the operator about monitored fleets whose alerts will not be emailed
+  if (m.enabled && e.enabled) {
+    for (const fleetId of m.fleetIds) {
+      if (getRecipientsForFleet(fleetId, cfg).to.length === 0) {
+        warnings.push(`fleet ${fleetId} is monitored but has no recipients in email.recipients.byFleet; its alerts will not be emailed`);
+      }
     }
   }
 
@@ -266,14 +278,20 @@ function getTemperatureThreshold(vehicleId, cfg = getAlertConfig()) {
 }
 
 /**
- * Recipients for a fleet: its own list when it has "to" addresses, else default.
+ * Recipients for one fleet. Fleets are isolated: only the fleet's own list in
+ * email.recipients.byFleet is used. The default list is used for a fleet with
+ * no list of its own only when defaultForFleetsWithoutRecipients is true
+ * (meant for an internal operations mailbox, never a customer).
+ *
  * @param {number|string} fleetId
  * @param {Object} [cfg]
  * @returns {{to:string[], cc:string[]}}
  */
 function getRecipientsForFleet(fleetId, cfg = getAlertConfig()) {
-  const fleet = cfg.email.recipients.byFleet[String(fleetId)];
-  return fleet && fleet.to.length > 0 ? fleet : cfg.email.recipients.default;
+  const { byFleet, default: fallback, defaultForFleetsWithoutRecipients } = cfg.email.recipients;
+  const fleet = byFleet[String(fleetId)];
+  if (fleet && fleet.to.length > 0) return fleet;
+  return defaultForFleetsWithoutRecipients ? fallback : { to: [], cc: [] };
 }
 
 /** Test helper — forget the cached file. */

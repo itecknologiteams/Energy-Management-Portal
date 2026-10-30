@@ -52,7 +52,10 @@ FILES = (
     "frontend/src/components/common/Header.jsx",
     "frontend/src/components/Dashboard/AlertsCard.jsx",
     "frontend/src/components/Dashboard/GeneratorAccordion.jsx",
+    "frontend/src/contexts/AuthContext.js",
+    "frontend/src/pages/Analytics.jsx",
     "frontend/src/pages/Dashboard.jsx",
+    "frontend/src/pages/Reports.jsx",
     "frontend/src/services/api.js",
 )
 PROJECT_DIR = posixpath.join(REMOTE_ROOT, "project")

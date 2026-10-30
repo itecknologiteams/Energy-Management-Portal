@@ -108,7 +108,12 @@ const Analytics = ({ onNavigate }) => {
         setSelectedDate(formattedDate);
         
         // Fetch dashboard and fleet analytics data in parallel
-        const effectiveFleetId = fleetId || 1735;
+        if (!fleetId) {
+          // Never fall back to another fleet's data
+          setError('This session has no fleet. Please log out and log in again.');
+          return;
+        }
+        const effectiveFleetId = fleetId;
         const [dashboardData, fleetAnalytics] = await Promise.all([
           getDashboardData(effectiveFleetId, formattedDate),
           getFleetAnalytics(effectiveFleetId, formattedDate)

@@ -125,7 +125,12 @@ const Reports = ({ onNavigate }) => {
         });
         
         // Fetch dashboard and fleet data in parallel
-        const effectiveFleetId = fleetId || 1735;
+        if (!fleetId) {
+          // Never fall back to another fleet's data
+          setError('This session has no fleet. Please log out and log in again.');
+          return;
+        }
+        const effectiveFleetId = fleetId;
         const [dashboardData, fleetAnalytics] = await Promise.all([
           getDashboardData(effectiveFleetId, formattedDate),
           getFleetAnalytics(effectiveFleetId, formattedDate)
@@ -1115,7 +1120,7 @@ const Reports = ({ onNavigate }) => {
                     </div>
                     <div className="metadata-item">
                       <span className="metadata-label">Fleet ID</span>
-                      <span className="metadata-value">1735</span>
+                      <span className="metadata-value">{fleetId}</span>
                     </div>
                   </div>
                 </div>

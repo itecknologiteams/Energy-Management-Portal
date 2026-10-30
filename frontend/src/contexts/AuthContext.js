@@ -12,6 +12,20 @@ export const useAuth = () => {
   return context;
 };
 
+// A session is only valid with the fleet it belongs to — every API call is
+// scoped to this ID, so a missing or bad value must never fall back to another
+// fleet's data.
+const parseFleetId = (value) => {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+const clearSession = () => {
+  localStorage.removeItem('user');
+  localStorage.removeItem('token');
+  localStorage.removeItem('fleetId');
+};
+
 // AuthProvider component to wrap the app
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -26,9 +40,9 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = () => {
       const storedUser = localStorage.getItem('user');
       const storedToken = localStorage.getItem('token');
-      const storedFleetId = localStorage.getItem('fleetId');
-      
-      if (storedUser && storedToken) {
+      const storedFleetId = parseFleetId(localStorage.getItem('fleetId'));
+
+      if (storedUser && storedToken && storedFleetId) {
         try {
           const parsedUser = JSON.parse(storedUser);
           setUser(parsedUser);
@@ -37,10 +51,11 @@ export const AuthProvider = ({ children }) => {
           setIsAuthenticated(true);
         } catch (error) {
           console.error('Error parsing stored user:', error);
-          localStorage.removeItem('user');
-          localStorage.removeItem('token');
-          localStorage.removeItem('fleetId');
+          clearSession();
         }
+      } else if (storedUser || storedToken || localStorage.getItem('fleetId')) {
+        // Incomplete session (e.g. no fleet) — force a fresh login
+        clearSession();
       }
       
       setLoading(false);
@@ -77,7 +92,10 @@ export const AuthProvider = ({ children }) => {
       // Extract user data and fleetId from response
       // Backend returns: { success: true, message: "...", data: { user: { fleetId: 62, username: "..." } } }
       const userData = data.data?.user || {};
-      const fleetId = userData.fleetId;
+      const fleetId = parseFleetId(userData.fleetId);
+      if (!fleetId) {
+        throw new Error('This account has no fleet assigned. Please contact the administrator.');
+      }
 
       // Debug: Log user data fields
       console.log('User data from API:', userData);
@@ -103,10 +121,11 @@ export const AuthProvider = ({ children }) => {
       // Debug: Final name value
       console.log('Final userData.name:', userData.name);
 
-      // Store auth data
+      // Store auth data (replacing anything left from a previous login)
+      clearSession();
       localStorage.setItem('token', data.token || 'auth-token');
       localStorage.setItem('user', JSON.stringify(userData));
-      localStorage.setItem('fleetId', fleetId);
+      localStorage.setItem('fleetId', String(fleetId));
       
       setUser(userData);
       setToken(data.token || 'auth-token');
@@ -124,9 +143,7 @@ export const AuthProvider = ({ children }) => {
 
   // Logout function
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('fleetId');
+    clearSession();
     setUser(null);
     setToken(null);
     setFleetId(null);

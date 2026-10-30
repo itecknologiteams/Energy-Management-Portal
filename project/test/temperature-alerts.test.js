@@ -41,13 +41,30 @@ test('email is disabled when SMTP settings are incomplete', () => {
   assert.ok(errors.some((e) => e.includes('smtp.host')));
 });
 
-test('fleet recipients fall back to the default list', () => {
+test('each fleet is emailed only on its own list; others get nothing', () => {
   const { config: cfg } = config({
     email: { recipients: { default: { to: ['ops@example.com'] }, byFleet: { 5: { to: ['five@example.com'] }, 6: { to: [] } } } },
   });
   assert.deepEqual(getRecipientsForFleet(5, cfg).to, ['five@example.com']);
-  assert.deepEqual(getRecipientsForFleet(6, cfg).to, ['ops@example.com']);
+  assert.deepEqual(getRecipientsForFleet(6, cfg).to, [], 'empty list is not replaced by default');
+  assert.deepEqual(getRecipientsForFleet(7, cfg).to, [], 'unlisted fleet is not sent to default');
+});
+
+test('default list is used for unlisted fleets only when explicitly enabled', () => {
+  const { config: cfg } = config({
+    email: { recipients: { default: { to: ['ops@example.com'] }, byFleet: { 5: { to: ['five@example.com'] } }, defaultForFleetsWithoutRecipients: true } },
+  });
+  assert.deepEqual(getRecipientsForFleet(5, cfg).to, ['five@example.com'], 'own list still wins');
   assert.deepEqual(getRecipientsForFleet(7, cfg).to, ['ops@example.com']);
+});
+
+test('a monitored fleet without recipients is reported', () => {
+  const { warnings } = config({
+    monitor: { enabled: true, fleetIds: [5, 9] },
+    email: { enabled: true, recipients: { byFleet: { 5: { to: ['five@example.com'] } } }, smtp: { host: 'smtp.example.com' } },
+  });
+  assert.ok(warnings.some((w) => w.includes('fleet 9') && w.includes('not be emailed')));
+  assert.ok(!warnings.some((w) => w.includes('fleet 5 ')));
 });
 
 test('alert only when temperature is above the threshold', () => {

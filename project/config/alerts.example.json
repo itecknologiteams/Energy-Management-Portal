@@ -16,7 +16,7 @@
   "monitor": {
     "enabled": true,
     "intervalMinutes": 5,
-    "fleetIds": [1735],
+    "fleetIds": [1735, 2086],
     "maxReadingAgeMinutes": 30,
     "repeatEmailEveryMinutes": 60,
     "sendRecoveryEmail": true
@@ -27,16 +27,22 @@
     "from": "EMS Alerts <alerts@itecknologi.com>",
     "subjectPrefix": "[EMS Alert]",
     "recipients": {
-      "default": {
-        "to": ["operations@itecknologi.com"],
-        "cc": []
-      },
+      "_note": "Each fleet gets ONLY its own vehicles' alerts, sent ONLY to its own list below. A fleet missing from byFleet is not emailed.",
       "byFleet": {
         "1735": {
           "to": ["fleet1735@itecknologi.com"],
           "cc": []
+        },
+        "2086": {
+          "to": ["tcm@itecknologi.com"],
+          "cc": []
         }
-      }
+      },
+      "default": {
+        "to": ["operations@itecknologi.com"],
+        "cc": []
+      },
+      "defaultForFleetsWithoutRecipients": false
     },
     "smtp": {
       "host": "smtp.office365.com",

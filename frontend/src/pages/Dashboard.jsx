@@ -50,10 +50,16 @@ const Dashboard = ({ onNavigate }) => {
   // Fetch dashboard data from API
   useEffect(() => {
     const fetchData = async () => {
+      if (!fleetId) {
+        // Never fall back to another fleet's data
+        setError('This session has no fleet. Please log out and log in again.');
+        setLoading(false);
+        return;
+      }
       try {
         setLoading(true);
         setError(null);
-        
+
         const today = new Date();
         const todayStr = toLocalDateStr(today);
 
@@ -64,7 +70,7 @@ const Dashboard = ({ onNavigate }) => {
         if (filter === 'Today') {
           filterStart = filterEnd = todayStr;
           setSelectedDate(todayStr);
-          data = await getDashboardData(fleetId || 1735, todayStr);
+          data = await getDashboardData(fleetId, todayStr);
         } else if (filter === 'This Week') {
           const weekStart = new Date(today);
           // Start from Monday of the current calendar week
@@ -74,20 +80,20 @@ const Dashboard = ({ onNavigate }) => {
           filterStart = toLocalDateStr(weekStart);
           filterEnd = todayStr;
           setSelectedDate(todayStr);
-          data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
+          data = await getDashboardDataRange(fleetId, filterStart, filterEnd);
         } else if (filter === 'This Month') {
           const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
           filterStart = toLocalDateStr(monthStart);
           filterEnd = todayStr;
           setSelectedDate(todayStr);
-          data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
+          data = await getDashboardDataRange(fleetId, filterStart, filterEnd);
         } else if (filter === 'Last Month') {
           const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
           const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0); // last day of prev month
           filterStart = toLocalDateStr(lastMonthStart);
           filterEnd = toLocalDateStr(lastMonthEnd);
           setSelectedDate(filterEnd);
-          data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
+          data = await getDashboardDataRange(fleetId, filterStart, filterEnd);
         }
 
         setFilterDateRange({ start: filterStart, end: filterEnd });

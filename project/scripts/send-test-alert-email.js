@@ -38,6 +38,12 @@ async function main() {
 
   const fleetId = fleetArg ? parseInt(fleetArg, 10) : (cfg.monitor.fleetIds[0] || 0);
   const recipients = fleetArg ? getRecipientsForFleet(fleetId, cfg) : cfg.email.recipients.default;
+  if (recipients.to.length === 0) {
+    console.error(fleetArg
+      ? `\nFleet ${fleetId} has no recipients in email.recipients.byFleet, so its alerts are not emailed.`
+      : '\nemail.recipients.default has no addresses.');
+    process.exit(1);
+  }
   const threshold = cfg.temperature.defaultThresholdC;
   const email = buildTemperatureEmail(fleetId, [{
     kind: 'alert', vehicleId: 0, vehicleName: 'TEST GENERATOR (sample)',
