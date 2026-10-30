@@ -59,11 +59,20 @@ const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
     };
   }, [showNotifications]);
 
-  // Sample notifications - in real app, these would come from props or API
-  const notifications = alerts || [
-    { id: 1, title: 'Fuel theft detected', message: 'MUL13320263: 248L theft detected', type: 'alert', time: 'Just now' },
-    { id: 2, title: 'Low fuel level', message: 'KHAN VILLAGE D/S: 14% remaining', type: 'warning', time: '2 hours ago' },
-  ];
+  // Alerts come from the dashboard data (services/api.js → generateAlerts)
+  const notifications = alerts || [];
+
+  // Map alert types to the bell's visual styles
+  const notificationStyle = (n) => {
+    if (n.type === 'theft' || n.type === 'temperature' || n.type === 'alert') return 'alert';
+    if (n.type === 'fuel' || n.type === 'battery' || n.type === 'warning') return 'warning';
+    return 'info';
+  };
+  const notificationIcon = (n) => n.icon || (
+    notificationStyle(n) === 'alert' ? 'fa-exclamation-triangle'
+      : notificationStyle(n) === 'warning' ? 'fa-gas-pump'
+      : 'fa-info-circle'
+  );
 
   return (
     <header className="dashboard-header">
@@ -130,13 +139,13 @@ const Header = ({ filter, setFilter, onExport, dateInfo, alerts }) => {
                   </div>
                 ) : (
                   notifications.map((notification) => (
-                    <div key={notification.id} className={`notification-item ${notification.type}`}>
+                    <div key={notification.id} className={`notification-item ${notificationStyle(notification)}`}>
                       <div className="notification-icon">
-                        <i className={`fas ${notification.type === 'alert' ? 'fa-exclamation-triangle' : notification.type === 'warning' ? 'fa-gas-pump' : 'fa-info-circle'}`}></i>
+                        <i className={`fas ${notificationIcon(notification)}`}></i>
                       </div>
                       <div className="notification-content">
                         <h5>{notification.title}</h5>
-                        <p>{notification.message}</p>
+                        <p>{notification.message ?? notification.description}</p>
                         <span className="notification-time">{notification.time}</span>
                       </div>
                     </div>

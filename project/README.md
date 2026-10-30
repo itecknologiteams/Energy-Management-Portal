@@ -223,6 +223,10 @@ const CRM_FLEET_VEHICLES_TABLE = 'ERP_Tracking.dbo.FleetVehicles';
 const TRACKING_SENSOR_MAPPING_TABLE = 'dbo.VehicleSensors';
 ```
 
+## Temperature Alerts
+
+Temperature limits, the background email monitor and SMTP are configured in `config/alerts.json`. See [ALERTS.md](ALERTS.md).
+
 ## Error Handling
 
 The API uses structured error responses:

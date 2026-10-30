@@ -43,6 +43,18 @@ It is a Git checkout of GitHub `main` and contains the commits already pushed to
 |---|---|
 | `project/test/fuel-transients.test.js` | Node tests for short-lived upward and downward fuel glitches. It is committed to Git but is not required on production. |
 
+## Temperature alerts (added 27 October 2026, not yet deployed)
+
+Configurable temperature limits (a global default plus per-vehicle overrides) raise alerts in the portal's notification bell and Alerts card. A background monitor emails recipients over SMTP. All settings are in `project/config/alerts.json` (git-ignored; template `alerts.example.json`). Full guide: [project/ALERTS.md](project/ALERTS.md).
+
+New dependency: `nodemailer` 7.x, so the first deploy needs `--install`:
+
+```powershell
+python deploy_production.py --deploy --install --restart
+```
+
+Then on the server, edit `/opt/Energy-Management-Portal/project/config/alerts.json`, set `email.enabled` to `true`, and run `npm run alerts:test-email` in `project/`.
+
 ## Fuel filtering behavior
 
 The service does not use vehicle-specific IDs for fuel spike filtering. It uses general rules:
@@ -72,7 +84,7 @@ energy-frontend  -> npm start in frontend/
 
 ## Deployment script
 
-The local script [deploy_production.py](deploy_production.py) uploads only the seven runtime files above. It prompts for the password at runtime and does not save credentials.
+The local script [deploy_production.py](deploy_production.py) uploads only the runtime files listed in its `FILES` list (never `config/alerts.json`). It prompts for the password at runtime and does not save credentials.
 
 Inventory only:
 

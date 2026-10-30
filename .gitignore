@@ -1,2 +1,8 @@
 project/node_modules
 frontend/node_modules
+
+# Alert settings with the SMTP password, and the monitor state file
+project/config/alerts.json
+project/data/
+
+__pycache__/

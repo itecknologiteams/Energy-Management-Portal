@@ -250,6 +250,7 @@ function applyLastKnown(v) {
       gpsBackupBattery: a.gpsBackupBattery ?? lk.gpsBackupBattery,
       fuel:             a.fuel             ?? lk.fuel,
       temperature:      a.temperature      ?? lk.temperature,
+      temperatureAt:    a.temperatureAt    ?? lk.temperatureAt,
       lastUpdate:       lk.timestamp,
     },
   };
@@ -359,7 +360,7 @@ export const getDashboardData = async (fleetId = 1735, date) => {
         let statusClass = 'normal';
         let iconClass = '';
 
-        if (analytics.fuelTheft > 0) {
+        if (analytics.fuelTheft > 0 || analytics.temperatureAlert) {
           status = 'Alert';    statusClass = 'alert';   iconClass = 'red';
         } else if (isCurrentlyRunning) {
           status = 'Running';  statusClass = 'running'; iconClass = 'green';
@@ -376,6 +377,9 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           gpsBackupBattery: analytics.gpsBackupBattery ?? null,
           fuelLevel: analytics.fuel || '-',
           temperature: analytics.temperature ?? null,
+          temperatureAt: analytics.temperatureAt ?? null,
+          temperatureThreshold: analytics.temperatureThreshold ?? null,
+          temperatureAlert: !!analytics.temperatureAlert,
           fuelConsumption: analytics.fuelConsumption || 0,
           fuelTheft: analytics.fuelTheft || 0,
           fuelRefilled: analytics.fuelRefilled || 0,
@@ -477,6 +481,9 @@ function aggregateVehiclesAcrossDates(dayResults) {
             workTime:           a.workTime            ?? 0,
             fuel:               a.fuel                ?? null,
             temperature:        a.temperature         ?? null,
+            temperatureAt:      a.temperatureAt       ?? null,
+            temperatureThreshold: a.temperatureThreshold ?? null,
+            temperatureAlert:   !!a.temperatureAlert,
             lastUpdate:         a.lastUpdate          ?? null,
             dailyRuns:          [],
             fuelEvents:         (a.fuelEvents || []).map(e => ({ ...e, date: dayDate })),
@@ -492,7 +499,13 @@ function aggregateVehiclesAcrossDates(dayResults) {
         if (a.batteryHealth    != null) e.batteryHealth    = a.batteryHealth;
         if (a.gpsBackupBattery != null) e.gpsBackupBattery = a.gpsBackupBattery;
         if (a.fuel             != null) e.fuel             = a.fuel;
-        if (a.temperature      != null) e.temperature      = a.temperature;
+        if (a.temperature      != null) {
+          // Reading, its time and its alert flag always come from the same (latest) day
+          e.temperature          = a.temperature;
+          e.temperatureAt        = a.temperatureAt ?? null;
+          e.temperatureAlert     = !!a.temperatureAlert;
+        }
+        if (a.temperatureThreshold != null) e.temperatureThreshold = a.temperatureThreshold;
         if (a.lastUpdate       != null) e.lastUpdate       = a.lastUpdate;
         if (!e.generatorStartTime && a.generatorStartTime) e.generatorStartTime = a.generatorStartTime;
         if (a.generatorStopTime)                           e.generatorStopTime  = a.generatorStopTime;
@@ -562,7 +575,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
     );
 
     let status = 'Normal', statusClass = 'normal', iconClass = '';
-    if (analytics.fuelTheft > 0)   { status = 'Alert';   statusClass = 'alert';   iconClass = 'red';   }
+    if (analytics.fuelTheft > 0 || analytics.temperatureAlert) { status = 'Alert'; statusClass = 'alert'; iconClass = 'red'; }
     else if (isCurrentlyRunning)   { status = 'Running'; statusClass = 'running'; iconClass = 'green'; }
     else if ((analytics.workTime || 0) > 0) { status = 'Active';  statusClass = 'active';  iconClass = 'blue';  }
 
@@ -574,6 +587,9 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       gpsBackupBattery: analytics.gpsBackupBattery ?? null,
       fuelLevel:        analytics.fuel          || '-',
       temperature:      analytics.temperature   ?? null,
+      temperatureAt:    analytics.temperatureAt ?? null,
+      temperatureThreshold: analytics.temperatureThreshold ?? null,
+      temperatureAlert: !!analytics.temperatureAlert,
       fuelConsumption:  analytics.fuelConsumption  || 0,
       fuelTheft:        analytics.fuelTheft        || 0,
       fuelRefilled:     analytics.fuelRefilled     || 0,
@@ -696,6 +712,23 @@ function generateAlerts(vehicles) {
     }
   });
 
+  // High temperature alerts — threshold comes from the backend (config/alerts.json)
+  vehicles.forEach(v => {
+    const analytics = v.analytics || {};
+    if (analytics.temperatureAlert && analytics.temperature != null) {
+      alerts.push({
+        id: `temperature-${v.vehicleId}`,
+        type: 'temperature',
+        icon: 'fa-temperature-high',
+        iconClass: 'red',
+        title: getVehicleDisplayName(v),
+        time: formatReadingTime(analytics.temperatureAt) || 'Latest reading',
+        description: `High temperature: ${Number(analytics.temperature).toFixed(1)} °C (limit ${analytics.temperatureThreshold} °C)`,
+        severity: 'high',
+      });
+    }
+  });
+
   // Low fuel alerts (fuel level below 20%)
   vehicles.forEach(v => {
     const analytics = v.analytics || {};
@@ -753,7 +786,21 @@ function generateAlerts(vehicles) {
     }
   });
 
-  return alerts.slice(0, 5); // Limit to 5 alerts
+  // Theft and temperature alerts are always shown; others fill up to 5 in total
+  const critical = alerts.filter(a => a.severity === 'high');
+  const others   = alerts.filter(a => a.severity !== 'high');
+  return [...critical, ...others].slice(0, Math.max(5, critical.length));
+}
+
+// Tracking timestamps are local (PKT) wall-clock values read back as UTC,
+// so format them in UTC to show the time as recorded.
+function formatReadingTime(at) {
+  if (!at) return null;
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('en-GB', {
+    day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC',
+  });
 }
 
 // Transform vehicle analytics to generator-like table data

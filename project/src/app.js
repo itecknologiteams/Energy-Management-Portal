@@ -8,6 +8,7 @@ const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
 const fleetRoutes = require('./routes/fleetRoutes');
 const authRoutes = require('./routes/authRoutes');
+const alertRoutes = require('./routes/alertRoutes');
 
 const app = express();
 
@@ -44,6 +45,7 @@ app.get('/health', (_req, res) => {
 // API Routes
 app.use('/api', fleetRoutes);
 app.use('/api', authRoutes);
+app.use('/api', alertRoutes);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERROR HANDLING (ORDER MATTERS — LAST)

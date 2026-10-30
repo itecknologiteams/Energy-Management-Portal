@@ -96,7 +96,7 @@ function StatusBadge({ status }) {
   );
 }
 
-function MetricChip({ icon: Icon, label, value, variant = 'default' }) {
+function MetricChip({ icon: Icon, label, value, variant = 'default', title }) {
   const variants = {
     default: 'bg-gray-50 border-gray-100 text-gray-800',
     danger:  'bg-red-50  border-red-100  text-red-700',
@@ -109,7 +109,7 @@ function MetricChip({ icon: Icon, label, value, variant = 'default' }) {
   };
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${variants[variant]}`}>
+    <div className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${variants[variant]}`} title={title}>
       <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${iconVariants[variant]}`} />
       <div className="min-w-0">
         <p className="text-[10px] font-medium uppercase tracking-wide text-gray-400 leading-none mb-0.5">{label}</p>
@@ -366,6 +366,23 @@ function DropCard({ amount, at }) {
   );
 }
 
+function TemperatureAlertCard({ temperature, threshold, at }) {
+  const when = formatEventTime(at);
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-xl bg-red-50 border border-red-200">
+      <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center flex-shrink-0">
+        <Thermometer className="w-4 h-4 text-red-600" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-red-700">
+          {Number(temperature).toFixed(1)} °C — above {threshold} °C limit
+        </p>
+        <p className="text-xs text-red-400 mt-0.5">{when ? `Latest reading ${when}` : 'Latest reading'}</p>
+      </div>
+    </div>
+  );
+}
+
 function EngineStats({ engineHours, workTimeHours }) {
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -435,6 +452,9 @@ function AccordionItem({ item, isOpen, onToggle }) {
   const temperatureDisplay = item.temperature != null
     ? `${Number(item.temperature).toFixed(1)} °C`
     : '—';
+  const tempAlert   = !!item.temperatureAlert && item.temperature != null;
+  const tempVariant = tempAlert ? 'danger' : 'default';
+  const tempTitle   = item.temperatureThreshold != null ? `Alert limit: ${item.temperatureThreshold} °C` : undefined;
 
   const hasDailyRuns = Array.isArray(item.dailyRuns) && item.dailyRuns.length > 0;
   const fuelEvents   = Array.isArray(item.fuelEvents)
@@ -491,7 +511,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
             {!item.noFuelSensor && <MetricChip icon={Fuel}     label="Fuel Used"  value={item.fuelUsed || (item.fuelConsumption != null ? `${item.fuelConsumption} L` : '—')} />}
             {!item.noFuelSensor && <MetricChip icon={Droplets} label="Fuel Level" value={fuelLevelDisplay} />}
             <MetricChip icon={Battery}  label="Battery"    value={batteryDisplay} />
-            <MetricChip icon={Thermometer} label="Temp"    value={temperatureDisplay} />
+            <MetricChip icon={Thermometer} label="Temp"    value={temperatureDisplay} variant={tempVariant} title={tempTitle} />
             {theft > 0 && (
               <MetricChip icon={ShieldAlert} label="Theft"
                 value={typeof item.fuelTheft === 'string' ? item.fuelTheft : `${theft} L`}
@@ -510,7 +530,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
           <MetricChip icon={Clock}    label="Work"    value={item.hours || `${workHrs} hrs`} />
           {!item.noFuelSensor && <MetricChip icon={Droplets} label="Fuel" value={fuelLevelDisplay} />}
           <MetricChip icon={Battery}  label="Battery" value={batteryDisplay} />
-          <MetricChip icon={Thermometer} label="Temp" value={temperatureDisplay} />
+          <MetricChip icon={Thermometer} label="Temp" value={temperatureDisplay} variant={tempVariant} title={tempTitle} />
           {theft > 0 && (
             <MetricChip icon={ShieldAlert} label="Theft"
               value={`${theft} L`} variant="danger" />
@@ -535,6 +555,18 @@ function AccordionItem({ item, isOpen, onToggle }) {
 
             {/* Right — Events & stats */}
             <div className="space-y-4">
+
+              {/* Temperature alert */}
+              {tempAlert && (
+                <div>
+                  <SectionLabel icon={Thermometer} text="Temperature Alert" color="text-red-600" />
+                  <TemperatureAlertCard
+                    temperature={item.temperature}
+                    threshold={item.temperatureThreshold}
+                    at={item.temperatureAt}
+                  />
+                </div>
+              )}
 
               {/* Fuel events */}
               {hasEvents && (
@@ -561,7 +593,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
               </div>
 
               {/* All-clear */}
-              {!hasEvents && workHrs === 0 && (
+              {!hasEvents && !tempAlert && workHrs === 0 && (
                 <div className="flex items-center gap-2.5 p-3 rounded-xl bg-gray-50 border border-gray-100">
                   <CircleDot className="w-4 h-4 text-gray-300 flex-shrink-0" />
                   <p className="text-sm text-gray-400">No activity or alerts for this period</p>

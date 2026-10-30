@@ -1,0 +1,55 @@
+{
+  "_readme": "Copy this file to alerts.json (same folder) and edit. alerts.json is git-ignored because it holds the SMTP password. Changes are picked up automatically within one monitor cycle; no restart needed. See project/ALERTS.md.",
+
+  "timezone": "Asia/Karachi",
+  "dbTimestampsAreLocalTime": true,
+
+  "temperature": {
+    "enabled": true,
+    "defaultThresholdC": 90,
+    "vehicleThresholdsC": {
+      "373157": 70
+    },
+    "recoveryMarginC": 2
+  },
+
+  "monitor": {
+    "enabled": true,
+    "intervalMinutes": 5,
+    "fleetIds": [1735],
+    "maxReadingAgeMinutes": 30,
+    "repeatEmailEveryMinutes": 60,
+    "sendRecoveryEmail": true
+  },
+
+  "email": {
+    "enabled": false,
+    "from": "EMS Alerts <alerts@itecknologi.com>",
+    "subjectPrefix": "[EMS Alert]",
+    "recipients": {
+      "default": {
+        "to": ["operations@itecknologi.com"],
+        "cc": []
+      },
+      "byFleet": {
+        "1735": {
+          "to": ["fleet1735@itecknologi.com"],
+          "cc": []
+        }
+      }
+    },
+    "smtp": {
+      "host": "smtp.office365.com",
+      "port": 587,
+      "secure": false,
+      "auth": {
+        "user": "alerts@itecknologi.com",
+        "pass": ""
+      },
+      "tls": {
+        "rejectUnauthorized": true
+      },
+      "connectionTimeoutMs": 15000
+    }
+  }
+}

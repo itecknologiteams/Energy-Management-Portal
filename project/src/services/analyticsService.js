@@ -130,6 +130,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
       workTime:           calculateWorkTime(trackingRows),
       fuel:               null,
       temperature:        calculateTemperature(trackingRows),
+      temperatureAt:      getLatestTemperatureReading(trackingRows)?.at ?? null,
     };
   }
 
@@ -249,6 +250,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     workTime:           calculateWorkTime(trackingRows),
     fuel:               getFinalFuelValue(rawSeries),
     temperature:        calculateTemperature(trackingRows),
+    temperatureAt:      getLatestTemperatureReading(trackingRows)?.at ?? null,
   };
 }
 
@@ -1353,11 +1355,24 @@ function calculateGpsBackupBattery(rows) {
  * @returns {number|null} Temperature in °C (1 decimal), or null if no probe data
  */
 function calculateTemperature(rows) {
+  return getLatestTemperatureReading(rows)?.celsius ?? null;
+}
+
+/**
+ * 1d. Latest valid temperature reading with the time it was taken.
+ * Same rules as calculateTemperature().
+ *
+ * @param {Array} rows - raw tracking rows, ordered ASC
+ * @returns {{celsius:number, at:string}|null}
+ */
+function getLatestTemperatureReading(rows) {
   for (let i = rows.length - 1; i >= 0; i--) {
     const raw = getParamValue(parseParams(rows[i].params), TEMPERATURE_PARAM_KEY);
     if (raw === null || raw === 0) continue;
     const celsius = raw * TEMPERATURE_SCALE;
-    if (celsius >= TEMPERATURE_MIN_C && celsius <= TEMPERATURE_MAX_C) return round(celsius, 1);
+    if (celsius >= TEMPERATURE_MIN_C && celsius <= TEMPERATURE_MAX_C) {
+      return { celsius: round(celsius, 1), at: new Date(rows[i].timestamp).toISOString() };
+    }
   }
   return null;
 }
@@ -1679,6 +1694,7 @@ function createEmptyAnalytics() {
     workTime: null,
     fuel: null,
     temperature: null,
+    temperatureAt: null,
   };
 }
 
@@ -1705,6 +1721,8 @@ module.exports = {
   parseIgnitionState,
   effectiveIgnition,
   calculateGeneratorRunIntervals,
+  calculateTemperature,
+  getLatestTemperatureReading,
   parseParams,
   getParamValue,
   parseNumeric,

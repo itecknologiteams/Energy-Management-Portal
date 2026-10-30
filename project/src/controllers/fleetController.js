@@ -13,6 +13,7 @@ const {
 } = require('../repositories/trackingRepository');
 const sensorRepository = require('../repositories/sensorRepository');
 const sensorMapper = require('../helpers/sensorMapper');
+const { attachTemperatureAlert } = require('../services/alertService');
 
 /**
  * GET /api/fleets/:fleetId/vehicles
@@ -124,6 +125,7 @@ async function getVehicleAnalytics(req, res, next) {
       sensorKeys,
       trackingRows
     );
+    attachTemperatureAlert(parsedVehicleId, analytics);
     res.json({
       success: true,
       vehicleId: parsedVehicleId,
@@ -160,6 +162,7 @@ async function getLastKnownData(vehicleId, date, sensorKeys) {
     gpsBackupBattery: analytics.gpsBackupBattery ?? null,
     fuel: analytics.fuel ?? null,
     temperature: analytics.temperature ?? null,
+    temperatureAt: analytics.temperatureAt ?? null,
   };
 }
 
@@ -215,6 +218,10 @@ async function getFleetAnalytics(req, res, next) {
             sensorKeys,
             trackingRows
           );
+
+          // Threshold check uses this day's reading only — a stale last-known
+          // value is shown, but does not raise an alert.
+          attachTemperatureAlert(parsedVehicleId, analytics);
 
           const lastKnown = includeLastKnown && trackingRows.length === 0
             ? await getLastKnownData(parsedVehicleId, date, sensorKeys)

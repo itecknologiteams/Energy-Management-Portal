@@ -3,7 +3,11 @@
 
 Run from this repository folder:
   python deploy_production.py --inventory
-  python deploy_production.py --deploy --restart
+  python deploy_production.py --deploy --install --restart
+
+--install runs "npm install --omit=dev" in project/ (needed once for nodemailer).
+config/alerts.json on the server is never overwritten; it is created from
+alerts.example.json only when missing (email disabled until you edit it).
 
 The password is requested at runtime and is never saved in this file.
 """
@@ -26,15 +30,32 @@ REMOTE_ROOT = "/opt/Energy-Management-Portal"
 LOCAL_ROOT = Path(__file__).resolve().parent
 
 # Test files are deliberately excluded: production needs only runtime files.
+# config/alerts.json is NOT listed: it holds the SMTP password and is edited on
+# the server only.
 FILES = (
+    "project/package.json",
+    "project/package-lock.json",
+    "project/config/alerts.example.json",
+    "project/scripts/send-test-alert-email.js",
+    "project/src/app.js",
+    "project/src/server.js",
+    "project/src/config/alertConfig.js",
     "project/src/constants/index.js",
     "project/src/controllers/fleetController.js",
     "project/src/repositories/trackingRepository.js",
+    "project/src/routes/alertRoutes.js",
+    "project/src/services/alertService.js",
     "project/src/services/analyticsService.js",
+    "project/src/services/mailService.js",
+    "project/src/services/temperatureMonitor.js",
+    "frontend/src/App.css",
+    "frontend/src/components/common/Header.jsx",
+    "frontend/src/components/Dashboard/AlertsCard.jsx",
     "frontend/src/components/Dashboard/GeneratorAccordion.jsx",
     "frontend/src/pages/Dashboard.jsx",
     "frontend/src/services/api.js",
 )
+PROJECT_DIR = posixpath.join(REMOTE_ROOT, "project")
 
 
 def local_sha256(path: Path) -> str:
@@ -80,6 +101,9 @@ def deploy(client: paramiko.SSHClient) -> None:
                 continue
 
             try:
+                code, _, error = run(client, f"mkdir -p {posixpath.dirname(target)!r}")
+                if code != 0:
+                    raise RuntimeError(error.strip() or "could not create remote folder")
                 sftp.put(str(source), temporary)
                 code, _, error = run(client, f"mv -f {temporary!r} {target!r}")
                 if code != 0:
@@ -103,11 +127,41 @@ def deploy(client: paramiko.SSHClient) -> None:
     print(f"\nSUCCESS: {len(FILES)} files uploaded and checksum-verified.")
 
 
+def ensure_alert_config(client: paramiko.SSHClient) -> None:
+    """Create config/alerts.json from the example if the server has none."""
+    config = posixpath.join(PROJECT_DIR, "config", "alerts.json")
+    example = posixpath.join(PROJECT_DIR, "config", "alerts.example.json")
+    code, _, _ = run(client, f"test -f {config!r}")
+    if code == 0:
+        print("config/alerts.json exists on the server (left unchanged).")
+        return
+    code, _, error = run(client, f"cp {example!r} {config!r} && chmod 600 {config!r}")
+    if code != 0:
+        raise RuntimeError(error.strip() or "could not create alerts.json")
+    print("Created config/alerts.json from the example. Email is OFF until you edit it:")
+    print(f"  nano {config}")
+
+
+def install_dependencies(client: paramiko.SSHClient) -> None:
+    code, output, error = run(client, f"cd {PROJECT_DIR!r} && npm install --omit=dev --no-audit --no-fund")
+    print(output, end="")
+    if code:
+        raise RuntimeError(error.strip() or "npm install failed")
+    print("Backend dependencies installed.")
+
+
+def check_dependencies(client: paramiko.SSHClient) -> None:
+    code, _, _ = run(client, f"cd {PROJECT_DIR!r} && node -e \"require.resolve('nodemailer')\"")
+    if code != 0:
+        print("WARNING: nodemailer is not installed on the server; alert emails will fail. "
+              "Re-run with --install.", file=sys.stderr)
+
+
 def verify_backend(client: paramiko.SSHClient) -> None:
     files = " ".join(
         f"{posixpath.join(REMOTE_ROOT, relative)!r}"
         for relative in FILES
-        if relative.startswith("project/")
+        if relative.startswith("project/") and relative.endswith(".js")
     )
     code, output, error = run(client, f"node --check {files}")
     if code:
@@ -134,14 +188,15 @@ def restart_processes(client: paramiko.SSHClient) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--inventory", action="store_true", help="List the server directory without changing it")
-    parser.add_argument("--deploy", action="store_true", help="Upload and checksum-verify the seven runtime files")
+    parser.add_argument("--deploy", action="store_true", help="Upload and checksum-verify the runtime files")
+    parser.add_argument("--install", action="store_true", help="Run npm install --omit=dev in project/ after --deploy")
     parser.add_argument("--build", action="store_true", help="Build frontend after --deploy")
     parser.add_argument("--restart", action="store_true", help="Restart energy-backend and energy-frontend after --deploy")
     args = parser.parse_args()
     if not args.inventory and not args.deploy:
         parser.error("choose --inventory or --deploy")
-    if (args.build or args.restart) and not args.deploy:
-        parser.error("--build and --restart require --deploy")
+    if (args.build or args.restart or args.install) and not args.deploy:
+        parser.error("--build, --install and --restart require --deploy")
 
     password = getpass.getpass(f"Password for {USER}@{HOST}: ")
     client = connect(password)
@@ -151,6 +206,10 @@ def main() -> None:
         if args.deploy:
             deploy(client)
             verify_backend(client)
+            ensure_alert_config(client)
+            if args.install:
+                install_dependencies(client)
+            check_dependencies(client)
             if args.build:
                 build_frontend(client)
             if args.restart:

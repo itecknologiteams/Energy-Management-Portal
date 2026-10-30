@@ -35,7 +35,7 @@ const AlertsCard = ({ alerts: apiAlerts }) => {
                   </div>
                   <span className="progress-text">{alert.progressText}</span>
                 </div>
-              ) : alert.type === 'theft' ? (
+              ) : alert.type === 'theft' || alert.type === 'temperature' ? (
                 <p className="alert-desc alert-theft">{alert.description}</p>
               ) : (
                 <p className="alert-desc">{alert.description}</p>

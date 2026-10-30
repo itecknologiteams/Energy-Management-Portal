@@ -7,6 +7,7 @@ const app = require('./app');
 const logger = require('./utils/logger');
 const { getPool: getCrmPool, closePool: closeCrmPool } = require('./db/crmDb');
 const { getPool: getTrackingPool, closePool: closeTrackingPool } = require('./db/trackingDb');
+const temperatureMonitor = require('./services/temperatureMonitor');
 
 const PORT = process.env.PORT || 3010;
 
@@ -68,6 +69,7 @@ async function startServer() {
  */
 async function gracefulShutdown(server, signal) {
   logger.info(`${signal} received — starting graceful shutdown...`);
+  temperatureMonitor.stop();
 
   // Close HTTP server first (stop accepting new connections)
   server.close(async () => {
@@ -109,6 +111,9 @@ async function start() {
 
     // Start HTTP server
     const server = await startServer();
+
+    // Background temperature alerts (settings in config/alerts.json)
+    temperatureMonitor.start();
 
     // Register shutdown handlers
     process.on('SIGTERM', () => gracefulShutdown(server, 'SIGTERM'));
