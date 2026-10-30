@@ -5,21 +5,24 @@
  * No database or network access here, so it is fully unit-testable.
  */
 
-const { getAlertConfig, getTemperatureThreshold } = require('../config/alertConfig');
+const { getAlertConfig } = require('../config/alertConfig');
+const { resolveThreshold } = require('./fleetAlertSettings');
 
 /**
- * Compare a temperature reading with the vehicle's configured threshold.
+ * Compare a temperature reading with the generator's limit for its fleet
+ * (set in the admin portal, falling back to alerts.json).
  *
  * @param {number|string} vehicleId
  * @param {number|null} celsius - latest reading, or null when no probe data
  * @param {Object} [cfg] - alert config (defaults to the live config)
+ * @param {number|string|null} [fleetId] - the fleet being viewed; null when unknown
  * @returns {{ temperatureThreshold:number|null, temperatureAlert:boolean }}
  */
-function evaluateTemperature(vehicleId, celsius, cfg = getAlertConfig()) {
+function evaluateTemperature(vehicleId, celsius, cfg = getAlertConfig(), fleetId = null) {
   if (!cfg.temperature.enabled) {
     return { temperatureThreshold: null, temperatureAlert: false };
   }
-  const threshold = getTemperatureThreshold(vehicleId, cfg);
+  const threshold = resolveThreshold(vehicleId, fleetId, cfg);
   const isAlert = typeof celsius === 'number' && Number.isFinite(celsius) && celsius > threshold;
   return { temperatureThreshold: threshold, temperatureAlert: isAlert };
 }
@@ -28,9 +31,9 @@ function evaluateTemperature(vehicleId, celsius, cfg = getAlertConfig()) {
  * Add temperatureThreshold / temperatureAlert to an analytics object.
  * Returns the same object for chaining; null/undefined pass through.
  */
-function attachTemperatureAlert(vehicleId, analytics, cfg = getAlertConfig()) {
+function attachTemperatureAlert(vehicleId, analytics, cfg = getAlertConfig(), fleetId = null) {
   if (!analytics) return analytics;
-  Object.assign(analytics, evaluateTemperature(vehicleId, analytics.temperature ?? null, cfg));
+  Object.assign(analytics, evaluateTemperature(vehicleId, analytics.temperature ?? null, cfg, fleetId));
   return analytics;
 }
 

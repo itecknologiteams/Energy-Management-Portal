@@ -11,7 +11,8 @@
 
 require('dotenv').config();
 
-const { getAlertConfig, getConfigStatus, getRecipientsForFleet } = require('../src/config/alertConfig');
+const { getAlertConfig, getConfigStatus } = require('../src/config/alertConfig');
+const { resolveRecipients } = require('../src/services/fleetAlertSettings');
 const { sendMail, verifyConnection } = require('../src/services/mailService');
 const { buildTemperatureEmail } = require('../src/services/temperatureMonitor');
 
@@ -37,10 +38,13 @@ async function main() {
   if (verifyOnly) return;
 
   const fleetId = fleetArg ? parseInt(fleetArg, 10) : (cfg.monitor.fleetIds[0] || 0);
-  const recipients = fleetArg ? getRecipientsForFleet(fleetId, cfg) : cfg.email.recipients.default;
-  if (recipients.to.length === 0) {
+  // A fleet's own recipients (admin portal), exactly as real alerts use them
+  const recipients = fleetArg
+    ? resolveRecipients(fleetId, cfg)
+    : { ...cfg.email.recipients.default, bcc: [] };
+  if (recipients.to.length + recipients.cc.length + recipients.bcc.length === 0) {
     console.error(fleetArg
-      ? `\nFleet ${fleetId} has no recipients in email.recipients.byFleet, so its alerts are not emailed.`
+      ? `\nFleet ${fleetId} has no recipients (or its emails are paused), so its alerts are not emailed.`
       : '\nemail.recipients.default has no addresses.');
     process.exit(1);
   }
@@ -55,8 +59,10 @@ async function main() {
     subject: `${email.subject} — TEST, please ignore`,
     to: recipients.to,
     cc: recipients.cc,
+    bcc: recipients.bcc,
   }, cfg);
-  console.log(`Test email sent to ${recipients.to.join(', ')}${recipients.cc.length ? ` (cc ${recipients.cc.join(', ')})` : ''}.`);
+  console.log(`Test email sent to ${recipients.to.length + recipients.cc.length + recipients.bcc.length} recipient(s)` +
+    `${recipients.to.length ? ` — to ${recipients.to.join(', ')}` : ''}${recipients.cc.length ? `, cc ${recipients.cc.join(', ')}` : ''}${recipients.bcc.length ? `, bcc ${recipients.bcc.length} hidden` : ''}.`);
   console.log(`Message ID: ${info.messageId}`);
   if (info.rejected.length) console.log(`Rejected: ${info.rejected.join(', ')}`);
 }

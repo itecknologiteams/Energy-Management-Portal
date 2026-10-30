@@ -220,8 +220,9 @@ async function getFleetAnalytics(req, res, next) {
           );
 
           // Threshold check uses this day's reading only — a stale last-known
-          // value is shown, but does not raise an alert.
-          attachTemperatureAlert(parsedVehicleId, analytics);
+          // value is shown, but does not raise an alert. The limit is this
+          // fleet's (admin portal), so the bell matches the alert emails.
+          attachTemperatureAlert(parsedVehicleId, analytics, undefined, fleetData.fleetId);
 
           const lastKnown = includeLastKnown && trackingRows.length === 0
             ? await getLastKnownData(parsedVehicleId, date, sensorKeys)

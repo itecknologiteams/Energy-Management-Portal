@@ -30,25 +30,41 @@ REMOTE_ROOT = "/opt/Energy-Management-Portal"
 LOCAL_ROOT = Path(__file__).resolve().parent
 
 # Test files are deliberately excluded: production needs only runtime files.
-# config/alerts.json is NOT listed: it holds the SMTP password and is edited on
-# the server only.
+# config/alerts.json and config/admins.json are NOT listed: they hold the SMTP
+# password and admin password hashes and live on the server only. The admin
+# portal's data (data/fleet-alerts.json, history, audit) is created there too.
 FILES = (
     "project/package.json",
     "project/package-lock.json",
     "project/config/alerts.example.json",
+    "project/scripts/manage-admins.js",
     "project/scripts/send-test-alert-email.js",
     "project/src/app.js",
     "project/src/server.js",
     "project/src/config/alertConfig.js",
     "project/src/constants/index.js",
+    "project/src/controllers/adminController.js",
     "project/src/controllers/fleetController.js",
+    "project/src/middleware/requireAdmin.js",
     "project/src/repositories/trackingRepository.js",
+    "project/src/routes/adminRoutes.js",
     "project/src/routes/alertRoutes.js",
+    "project/src/services/adminAuth.js",
+    "project/src/services/alertHistory.js",
     "project/src/services/alertService.js",
     "project/src/services/analyticsService.js",
+    "project/src/services/fleetAlertSettings.js",
     "project/src/services/mailService.js",
     "project/src/services/temperatureMonitor.js",
+    "project/src/utils/jsonStore.js",
     "frontend/src/App.css",
+    "frontend/src/App.jsx",
+    "frontend/src/admin/AdminApp.jsx",
+    "frontend/src/admin/AdminViews.jsx",
+    "frontend/src/admin/FleetEditor.jsx",
+    "frontend/src/admin/admin.css",
+    "frontend/src/admin/adminApi.js",
+    "frontend/src/admin/ui.jsx",
     "frontend/src/components/common/Header.jsx",
     "frontend/src/components/Dashboard/AlertsCard.jsx",
     "frontend/src/components/Dashboard/GeneratorAccordion.jsx",

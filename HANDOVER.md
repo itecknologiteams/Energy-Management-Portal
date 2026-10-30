@@ -55,6 +55,20 @@ python deploy_production.py --deploy --install --restart
 
 Then on the server, edit `/opt/Energy-Management-Portal/project/config/alerts.json`, set `email.enabled` to `true`, and run `npm run alerts:test-email` in `project/`.
 
+## Alert email admin portal (30 October 2026)
+
+An iTecknologi-only portal at `/admin` manages each fleet's alert emails: To/CC/BCC recipients, on/off, fleet and per-generator temperature limits, test emails, email history and an activity log. Customers never see it. Each fleet's alerts go only to its own recipients. Adding an address that already receives another fleet's alerts requires explicit confirmation, which is logged.
+
+After deploying, on the server:
+
+```bash
+cd /opt/Energy-Management-Portal/project
+npm run admin -- add <username>          # create the first admin
+npm run alerts:test-email -- --verify    # check the SMTP login
+```
+
+SMTP stays in `config/alerts.json`. Admin accounts are in `config/admins.json`, and portal data is in `data/`; all of these are git-ignored. Full guide: [project/ALERTS.md](project/ALERTS.md).
+
 ## Real-time and fuel-source fixes (30 October 2026)
 
 - Tracking timestamps are PKT wall-clock time read back as UTC. The backend used to compare them with UTC "now" and drop every row from the last 5 hours as "future". It now uses the PKT clock (`dbClockNow`, timezone from `config/alerts.json`, default Asia/Karachi), with 5 minutes of tolerance for device clock drift.

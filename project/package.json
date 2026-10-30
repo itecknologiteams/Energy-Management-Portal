@@ -7,7 +7,8 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "test": "node --test",
-    "alerts:test-email": "node scripts/send-test-alert-email.js"
+    "alerts:test-email": "node scripts/send-test-alert-email.js",
+    "admin": "node scripts/manage-admins.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

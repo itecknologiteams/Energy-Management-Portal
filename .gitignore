@@ -3,6 +3,8 @@ frontend/node_modules
 
 # Alert settings with the SMTP password, and the monitor state file
 project/config/alerts.json
+# Admin portal accounts (password hashes)
+project/config/admins.json
 project/data/
 
 __pycache__/

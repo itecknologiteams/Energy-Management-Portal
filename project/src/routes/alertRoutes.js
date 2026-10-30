@@ -1,38 +1,37 @@
 'use strict';
 
 /**
- * Alert routes — read-only view of alert settings and monitor health.
- * SMTP credentials and recipient addresses are never returned.
+ * Public alert health check. Shows only on/off flags and counts — no fleet IDs,
+ * vehicle IDs, limits or addresses. Full details are in the admin portal
+ * (GET /api/admin/overview).
  */
 
 const express = require('express');
 const { getAlertConfig, getConfigStatus } = require('../config/alertConfig');
+const { monitoredFleetIds } = require('../services/fleetAlertSettings');
 const temperatureMonitor = require('../services/temperatureMonitor');
 const { noCache } = require('../middleware/validate');
 
 const router = express.Router();
 
-// GET /api/alerts/status — thresholds, monitor/email on-off, last run, config problems
+// GET /api/alerts/status
 router.get('/alerts/status', noCache, (_req, res) => {
   const cfg = getAlertConfig();
-  const { path: configFile, errors, warnings } = getConfigStatus();
+  const { errors } = getConfigStatus();
+  const lastRun = temperatureMonitor.getStatus().lastRun;
   res.json({
     success: true,
-    configFile,
-    configErrors: errors,
-    configWarnings: warnings,
-    temperature: {
-      enabled: cfg.temperature.enabled,
-      defaultThresholdC: cfg.temperature.defaultThresholdC,
-      vehicleThresholdsC: cfg.temperature.vehicleThresholdsC,
-      recoveryMarginC: cfg.temperature.recoveryMarginC,
-    },
-    monitor: { ...cfg.monitor, ...temperatureMonitor.getStatus() },
-    email: {
-      enabled: cfg.email.enabled,
-      smtpHost: cfg.email.smtp.host || null,
-      fleetsWithOwnRecipients: Object.keys(cfg.email.recipients.byFleet),
-    },
+    temperatureAlertsEnabled: cfg.temperature.enabled,
+    monitorEnabled: cfg.monitor.enabled,
+    emailEnabled: cfg.email.enabled,
+    monitoredFleetCount: monitoredFleetIds(cfg).length,
+    configErrorCount: errors.length,
+    lastRun: lastRun ? {
+      finishedAt: lastRun.finishedAt,
+      generatorsChecked: lastRun.checked,
+      emailsSent: lastRun.emailsSent,
+      errorCount: lastRun.errors.length,
+    } : null,
   });
 });
 

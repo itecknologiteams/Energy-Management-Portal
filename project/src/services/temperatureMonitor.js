@@ -16,7 +16,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const { getAlertConfig, getTemperatureThreshold, getRecipientsForFleet } = require('../config/alertConfig');
+const { getAlertConfig } = require('../config/alertConfig');
+const { resolveThreshold, resolveRecipients, monitoredFleetIds } = require('./fleetAlertSettings');
+const alertHistory = require('./alertHistory');
 const { getVehiclesByFleetId } = require('../repositories/fleetRepository');
 const { getTrackingData } = require('../repositories/trackingRepository');
 const { TrackingTableNotFoundError } = require('../utils/errors');
@@ -251,7 +253,8 @@ async function runOnce() {
   try {
     if (!cfg.temperature.enabled) return summary;
 
-    for (const fleetId of cfg.monitor.fleetIds) {
+    // Fleets switched on in the admin portal (+ any listed only in alerts.json)
+    for (const fleetId of monitoredFleetIds(cfg)) {
       let vehicles;
       try {
         vehicles = await getVehiclesByFleetId(fleetId);
@@ -266,7 +269,7 @@ async function runOnce() {
         const key = `${fleetId}:${id}`;
         try {
           const reading = await readLatestTemperature(id, cfg);
-          const threshold = getTemperatureThreshold(id, cfg);
+          const threshold = resolveThreshold(id, fleetId, cfg);
           const wasActive = !!state[key]?.active;
           const { state: next, notify } = decide(state[key], reading, threshold, rules, Date.now());
           summary.checked++;
@@ -296,23 +299,28 @@ async function runOnce() {
 
       if (!cfg.email.enabled) continue; // logged only; lastEmailAt stays empty
 
-      const recipients = getRecipientsForFleet(fleetId, cfg);
-      if (recipients.to.length === 0) {
+      // Only this fleet's own recipients — never another fleet's or a shared list
+      const recipients = resolveRecipients(fleetId, cfg);
+      const total = recipients.to.length + recipients.cc.length + recipients.bcc.length;
+      if (total === 0) {
         summary.errors.push(`fleet ${fleetId}: no email recipients configured`);
         continue;
       }
 
+      const email = buildTemperatureEmail(fleetId, pending, cfg);
+      const record = { fleetId, subject: email.subject, to: recipients.to, cc: recipients.cc, bcc: recipients.bcc, items: pending };
       try {
-        const email = buildTemperatureEmail(fleetId, pending, cfg);
-        await mailService.sendMail({ ...email, to: recipients.to, cc: recipients.cc }, cfg);
+        const info = await mailService.sendMail({ ...email, to: recipients.to, cc: recipients.cc, bcc: recipients.bcc }, cfg);
         summary.emailsSent++;
         const sentAt = Date.now();
         for (const p of pending) {
           if (p.kind !== 'recovered' && state[p.key]) state[p.key].lastEmailAt = sentAt;
         }
-        console.log(`[temperatureMonitor] Email sent to ${recipients.to.join(', ')} for fleet ${fleetId} (${pending.length} item(s))`);
+        alertHistory.recordEmail({ ...record, status: 'sent', messageId: info.messageId });
+        console.log(`[temperatureMonitor] Email sent for fleet ${fleetId} to ${total} recipient(s) (${pending.length} item(s))`);
       } catch (err) {
         // lastEmailAt stays unset, so the alert is retried next cycle
+        alertHistory.recordEmail({ ...record, status: 'failed', error: err.message });
         summary.errors.push(`fleet ${fleetId}: email failed: ${err.message}`);
         console.error(`[temperatureMonitor] Email failed for fleet ${fleetId}: ${err.message}`);
       }
@@ -359,7 +367,7 @@ function start() {
   stopped = false;
   const cfg = getAlertConfig();
   console.log(
-    `[temperatureMonitor] Started — monitor ${cfg.monitor.enabled ? `on, every ${cfg.monitor.intervalMinutes} min, fleets ${cfg.monitor.fleetIds.join(', ')}` : 'off'}; ` +
+    `[temperatureMonitor] Started — monitor ${cfg.monitor.enabled ? `on, every ${cfg.monitor.intervalMinutes} min, fleets ${monitoredFleetIds(cfg).join(', ') || 'none yet (add them in /admin)'}` : 'off'}; ` +
     `email ${cfg.email.enabled ? 'on' : 'off'}; default limit ${cfg.temperature.defaultThresholdC} °C`
   );
   timer = setTimeout(tick, 30000);

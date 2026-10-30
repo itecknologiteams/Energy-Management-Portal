@@ -1,5 +1,11 @@
 'use strict';
 
+// Keep test files out of the project's real config/ and data/ folders
+const testDir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'ems-alert-test-'));
+process.env.FLEET_ALERTS_PATH = require('path').join(testDir, 'fleet-alerts.json');
+process.env.ALERT_DATA_DIR = testDir;
+process.env.ALERT_STATE_PATH = require('path').join(testDir, 'alert-state.json');
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -56,15 +62,6 @@ test('default list is used for unlisted fleets only when explicitly enabled', ()
   });
   assert.deepEqual(getRecipientsForFleet(5, cfg).to, ['five@example.com'], 'own list still wins');
   assert.deepEqual(getRecipientsForFleet(7, cfg).to, ['ops@example.com']);
-});
-
-test('a monitored fleet without recipients is reported', () => {
-  const { warnings } = config({
-    monitor: { enabled: true, fleetIds: [5, 9] },
-    email: { enabled: true, recipients: { byFleet: { 5: { to: ['five@example.com'] } } }, smtp: { host: 'smtp.example.com' } },
-  });
-  assert.ok(warnings.some((w) => w.includes('fleet 9') && w.includes('not be emailed')));
-  assert.ok(!warnings.some((w) => w.includes('fleet 5 ')));
 });
 
 test('alert only when temperature is above the threshold', () => {

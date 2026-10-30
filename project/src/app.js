@@ -9,8 +9,13 @@ const errorHandler = require('./middleware/errorHandler');
 const fleetRoutes = require('./routes/fleetRoutes');
 const authRoutes = require('./routes/authRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
+
+// The frontend server proxies /api from the same machine; trust its
+// X-Forwarded-For so login lockouts apply per real client IP.
+app.set('trust proxy', 'loopback');
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MIDDLEWARE (ORDER IS CRITICAL)
@@ -31,7 +36,7 @@ app.use(requestLogger);
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // 4. Parse incoming JSON bodies
-app.use(express.json());
+app.use(express.json({ limit: '100kb' }));
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROUTES
@@ -46,6 +51,7 @@ app.get('/health', (_req, res) => {
 app.use('/api', fleetRoutes);
 app.use('/api', authRoutes);
 app.use('/api', alertRoutes);
+app.use('/api', adminRoutes);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERROR HANDLING (ORDER MATTERS — LAST)

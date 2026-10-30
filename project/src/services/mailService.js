@@ -46,18 +46,28 @@ function getTransport(cfg) {
 
 /**
  * Send one email.
- * @param {{to:string[], cc?:string[], subject:string, text:string, html?:string}} message
+ *
+ * BCC recipients are delivered without appearing in the headers, so they can't
+ * see each other or the To/CC list. When there is no To address (BCC-only
+ * list), the message is addressed to the sender itself so no recipient address
+ * is exposed.
+ *
+ * @param {{to:string[], cc?:string[], bcc?:string[], subject:string, text:string, html?:string}} message
  * @param {Object} [cfg]
  * @returns {Promise<{messageId:string, accepted:string[], rejected:string[]}>}
  */
 async function sendMail(message, cfg = getAlertConfig()) {
   if (!cfg.email.enabled) throw new Error('Email is disabled in alerts.json (email.enabled = false)');
-  if (!message.to || message.to.length === 0) throw new Error('No recipients');
+  const to = message.to || [];
+  const cc = message.cc || [];
+  const bcc = message.bcc || [];
+  if (to.length + cc.length + bcc.length === 0) throw new Error('No recipients');
 
   const info = await getTransport(cfg).sendMail({
     from: cfg.email.from,
-    to: message.to.join(', '),
-    cc: message.cc && message.cc.length > 0 ? message.cc.join(', ') : undefined,
+    to: to.length > 0 ? to.join(', ') : cfg.email.from,
+    cc: cc.length > 0 ? cc.join(', ') : undefined,
+    bcc: bcc.length > 0 ? bcc.join(', ') : undefined,
     subject: message.subject,
     text: message.text,
     html: message.html,

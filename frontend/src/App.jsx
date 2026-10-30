@@ -5,8 +5,18 @@ import Reports from './pages/Reports';
 import './App.css';
 import './tailwind.css';
 import LoginPage from './pages/Login';
+import AdminApp from './admin/AdminApp';
+
+// The alert email admin portal lives at /admin, completely separate from
+// customer logins and pages.
+const isAdminPath = () => /^\/admin(\/|$)/.test(window.location.pathname);
 
 function App() {
+  if (isAdminPath()) return <AdminApp />;
+  return <CustomerApp />;
+}
+
+function CustomerApp() {
   const [currentPage, setCurrentPage] = useState('login');
 
   const renderPage = () => {

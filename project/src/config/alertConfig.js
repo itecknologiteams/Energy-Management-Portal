@@ -162,10 +162,6 @@ function validate(cfg) {
   m.fleetIds = (Array.isArray(m.fleetIds) ? m.fleetIds : [])
     .map((id) => parseInt(id, 10))
     .filter((id) => Number.isInteger(id) && id > 0);
-  if (m.enabled && m.fleetIds.length === 0) {
-    errors.push('monitor.fleetIds is empty; background monitor disabled');
-    m.enabled = false;
-  }
 
   // ── email ───────────────────────────────────────────────────────────────────
   const e = cfg.email;
@@ -198,25 +194,15 @@ function validate(cfg) {
   s.secure = s.secure === true;
 
   if (e.enabled) {
+    // Recipients are normally managed per fleet in the admin portal, so an
+    // empty recipients section here is fine; only the SMTP basics are required.
     const problems = [];
     if (!s.host) problems.push('email.smtp.host is empty');
     if (!Number.isInteger(s.port) || s.port < 1 || s.port > 65535) problems.push('email.smtp.port is invalid');
     if (!e.from) problems.push('email.from is empty');
-    const anyRecipient = Object.values(e.recipients.byFleet).some((f) => f.to.length > 0) ||
-      (e.recipients.defaultForFleetsWithoutRecipients && e.recipients.default.to.length > 0);
-    if (!anyRecipient) problems.push('no fleet has recipients (email.recipients.byFleet)');
     if (problems.length > 0) {
       errors.push(`${problems.join('; ')}; email disabled`);
       e.enabled = false;
-    }
-  }
-
-  // Tell the operator about monitored fleets whose alerts will not be emailed
-  if (m.enabled && e.enabled) {
-    for (const fleetId of m.fleetIds) {
-      if (getRecipientsForFleet(fleetId, cfg).to.length === 0) {
-        warnings.push(`fleet ${fleetId} is monitored but has no recipients in email.recipients.byFleet; its alerts will not be emailed`);
-      }
     }
   }
 
