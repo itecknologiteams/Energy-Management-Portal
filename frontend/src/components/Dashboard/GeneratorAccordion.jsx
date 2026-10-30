@@ -189,7 +189,8 @@ function DailyRunTimeline({ runs, startTimeFormatted, stopTimeFormatted }) {
 
           // "Still running" only applies to today's data. Historical entries
           // where the data window ended while running show the last known time.
-          const todayStr = new Date().toISOString().split('T')[0];
+          const now      = new Date();
+          const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
           const isLive   = !!run.isOpen && run.date === todayStr;
           const start    = run.isCarryover ? '←' : run.startTime ? fmt(run.startTime) : '–';
           const stop     = isLive ? 'Still running' : run.stopTime ? fmt(run.stopTime) : '–';
@@ -495,7 +496,7 @@ function AccordionItem({ item, isOpen, onToggle }) {
             {/* The device sent nothing in this period — readings are its last ones */}
             {item.lastUpdate && (
               <p className="text-xs text-amber-600 truncate mt-0.5" title="No data received in this period; showing the last data from the GPS server">
-                Last data: {new Date(item.lastUpdate).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}
+                Last data: {new Date(item.lastUpdate).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'UTC' })}
               </p>
             )}
           </div>

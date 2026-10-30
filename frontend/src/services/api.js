@@ -228,7 +228,7 @@ export const getFleetAnalytics = (fleetId = 1735, date, includeLastKnown = false
   const validatedFleetId = validators.fleetId(fleetId);
 
   // Client-side validation for date (required parameter)
-  const formattedDate = date || new Date().toISOString().split('T')[0];
+  const formattedDate = date || toLocalDateStr(new Date());
   validators.dateFormat(formattedDate);
   validators.dateNotFuture(formattedDate);
 
@@ -268,7 +268,7 @@ export const getVehicleAnalytics = (vehicleId, date) => {
   const validatedVehicleId = validators.vehicleId(vehicleId);
 
   // Client-side validation for date (required parameter)
-  const formattedDate = date || new Date().toISOString().split('T')[0];
+  const formattedDate = date || toLocalDateStr(new Date());
   validators.dateFormat(formattedDate);
   validators.dateNotFuture(formattedDate);
 
@@ -281,7 +281,7 @@ export const getVehicleFuelSeries = (vehicleId, date) => {
   const validatedVehicleId = validators.vehicleId(vehicleId);
 
   // Client-side validation for date (required parameter)
-  const formattedDate = date || new Date().toISOString().split('T')[0];
+  const formattedDate = date || toLocalDateStr(new Date());
   validators.dateFormat(formattedDate);
   validators.dateNotFuture(formattedDate);
 
@@ -292,7 +292,7 @@ export const getVehicleFuelSeries = (vehicleId, date) => {
 export const getDashboardData = async (fleetId = 1735, date) => {
   // Validate inputs before making any API calls
   const validatedFleetId = validators.fleetId(fleetId);
-  const formattedDate = date || new Date().toISOString().split('T')[0];
+  const formattedDate = date || toLocalDateStr(new Date());
   validators.dateFormat(formattedDate);
   validators.dateNotFuture(formattedDate);
 
@@ -344,15 +344,15 @@ export const getDashboardData = async (fleetId = 1735, date) => {
 
         // Format start/stop times
         const startTime = analytics.generatorStartTime
-          ? new Date(analytics.generatorStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          ? new Date(analytics.generatorStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
           : '-';
         const stopTime = analytics.generatorStopTime
-          ? new Date(analytics.generatorStopTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+          ? new Date(analytics.generatorStopTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
           : '-';
 
         // "Running" = generator has an open (still-on) run on today's date.
         // "Active"  = ran at some point on this date but is no longer running.
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = toLocalDateStr(new Date());
         const isCurrentlyRunning = formattedDate === todayStr &&
           (analytics.generatorRuns || []).some(r => r.isOpen);
 
@@ -569,7 +569,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
 
     // "Running" = has an open run on today's date (engine on right now).
     // "Active"  = ran during the period but not currently on.
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = toLocalDateStr(new Date());
     const isCurrentlyRunning = (analytics.dailyRuns || []).some(
       r => r.isOpen && r.date === todayStr
     );
@@ -817,10 +817,10 @@ export const transformToTableData = (vehicles = []) => {
 
     // Format start/stop times
     const startTime = analytics.generatorStartTime
-      ? new Date(analytics.generatorStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(analytics.generatorStartTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
       : '-';
     const stopTime = analytics.generatorStopTime
-      ? new Date(analytics.generatorStopTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+      ? new Date(analytics.generatorStopTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
       : '-';
 
     // Determine status based on fuel theft, work time, and fuel level

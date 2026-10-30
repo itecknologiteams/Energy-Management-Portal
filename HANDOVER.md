@@ -55,6 +55,14 @@ python deploy_production.py --deploy --install --restart
 
 Then on the server, edit `/opt/Energy-Management-Portal/project/config/alerts.json`, set `email.enabled` to `true`, and run `npm run alerts:test-email` in `project/`.
 
+## Real-time and fuel-source fixes (30 October 2026)
+
+- Tracking timestamps are PKT wall-clock time read back as UTC. The backend used to compare them with UTC "now" and drop every row from the last 5 hours as "future". It now uses the PKT clock (`dbClockNow`, timezone from `config/alerts.json`, default Asia/Karachi), with 5 minutes of tolerance for device clock drift.
+- A `FuelLevel` column value of `0` is treated as "not provided", so the calibrated sensor from `VehicleSensors` is used instead. Vehicle 413532 (GENSET-TCM) sends `FuelLevel = 0` with its real fuel reading in `io270`, and showed Fuel Level "—" before this fix.
+- `fuel-debug` now uses the same conversion as the dashboard.
+- The frontend uses the local date for "today" and prints PKT times as stored (no +5 h shift on "Last data" or Today's start/stop).
+- Regression tests with 413532's real rows: `project/test/vehicle-413532.test.js`.
+
 ## Fuel filtering behavior
 
 The service does not use vehicle-specific IDs for fuel spike filtering. It uses general rules:

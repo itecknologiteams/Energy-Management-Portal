@@ -42,6 +42,11 @@ const {
   TEMPERATURE_MIN_C,
   TEMPERATURE_MAX_C,
 } = require('../constants');
+const { dbClockNow } = require('./alertService');
+
+// Rows this far past "now" are kept (device clocks drift a little); anything
+// later is pre-loaded test data or a badly wrong device clock.
+const FUTURE_ROW_TOLERANCE_MS = 5 * 60 * 1000;
 
 // ─── Multi-layer fuel detection constants ────────────────────────────────────
 
@@ -87,8 +92,11 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     return createEmptyAnalytics();
   }
 
-  // Drop records with timestamps in the future (pre-loaded test data / device clock drift)
-  const now = Date.now();
+  // Drop records with timestamps in the future (pre-loaded test data / device clock drift).
+  // Tracking timestamps are local (PKT) wall-clock time read back as UTC, so
+  // "now" must be on the same clock — comparing with Date.now() discarded the
+  // most recent 5 hours of every day.
+  const now = dbClockNow().getTime() + FUTURE_ROW_TOLERANCE_MS;
   const trackingRowsFiltered = trackingRows.filter(
     (r) => new Date(r.timestamp).getTime() <= now
   );
@@ -262,8 +270,10 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
  * Build a merged time-series of {timestamp, fuel (litres), ignition (0|1)}
  * from raw tracking rows.
  *
- * Fuel source priority (stops at first non-null value):
- *   1. FuelLevel column (CAN bus, already in litres)
+ * Fuel source priority (stops at first usable value):
+ *   1. FuelLevel column (CAN bus, already in litres) — only when > 0. Devices
+ *      without a CAN fuel reading send 0 here, not NULL (e.g. vehicle 413532),
+ *      which would otherwise hide their calibrated sensor in Params.
  *   2. Params[fuelSensorKey]  (io9 → key "9"; io327 → key "327") + calibrate
  *   3. Params["327"] default fallback + calibrate
  *   4. Battery column — ONLY when rawValue ≤ calibrationMaxX × 1.2
@@ -288,9 +298,11 @@ function buildFuelIgnitionSeries(rows, calibration, fuelSensorKey, calibrationMa
 
     let usedBatteryFallback = false;
 
-    // 1. FuelLevel column (already litres)
+    // 1. FuelLevel column (already litres). 0 means "not provided": readings
+    //    below MIN_VALID_FUEL_READING are discarded anyway, so a real empty
+    //    tank is never represented by this value.
     const fl = parseNumeric(row.fuelLevel);
-    if (fl !== null) {
+    if (fl !== null && fl > 0) {
       fuel = fl;
     }
 
@@ -1727,6 +1739,7 @@ module.exports = {
   getParamValue,
   parseNumeric,
   applyCalibration,
+  normalizeFuelRaw,
   resolveFuelCalibration,
   buildFuelIgnitionSeries,
   filterTransientFuelSpikes,

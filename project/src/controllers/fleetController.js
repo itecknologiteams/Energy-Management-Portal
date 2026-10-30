@@ -316,9 +316,10 @@ async function getVehicleFuelDebug(req, res, next) {
 
     if (latestRow) {
       // Check sources in same priority as buildFuelIgnitionSeries
-      // 1. FuelLevel column
-      if (latestRow.fuelLevel !== null && latestRow.fuelLevel !== undefined) {
-        rawFuelValue = latestRow.fuelLevel;
+      // 1. FuelLevel column (0 = not provided, same rule as analyticsService)
+      const fuelLevelColumn = parseFloat(latestRow.fuelLevel);
+      if (Number.isFinite(fuelLevelColumn) && fuelLevelColumn > 0) {
+        rawFuelValue = fuelLevelColumn;
         fuelSource = 'FuelLevel column';
       }
 
@@ -328,7 +329,7 @@ async function getVehicleFuelDebug(req, res, next) {
           const params = JSON.parse(latestRow.params);
           const pv = params[fuelSensorKey];
           if (pv !== null && pv !== undefined) {
-            rawFuelValue = normalizeFuelDebug(parseFloat(pv), calibrationMaxX);
+            rawFuelValue = normalizeFuelDebug(parseFloat(pv), calibrationMaxX, String(fuelSensorKey) === '9');
             fuelSource = `Params[io${fuelSensorKey}]`;
           }
         } catch { /* ignore */ }
@@ -359,8 +360,8 @@ async function getVehicleFuelDebug(req, res, next) {
         }
       }
 
-      // Apply calibration if needed
-      if (rawFuelValue !== null && fuelCalibration) {
+      // Apply calibration if needed (FuelLevel is already in litres)
+      if (rawFuelValue !== null && fuelCalibration && fuelSource !== 'FuelLevel column') {
         calibratedFuel = applyCalibrationDebug(rawFuelValue, fuelCalibration);
       }
     }
@@ -417,19 +418,11 @@ function applyCalibrationDebug(rawValue, calibrationPoints) {
 
 /**
  * Normalize raw fuel ADC from mV → V when calibration uses volts.
- * Mirrors normalizeFuelRaw() in analyticsService.js.
+ * Delegates to analyticsService so the debug output always matches the
+ * value the dashboard calculates.
  */
-function normalizeFuelDebug(rawValue, calibrationMaxX) {
-  if (
-    calibrationMaxX != null &&
-    calibrationMaxX !== Infinity &&
-    calibrationMaxX <= 20 &&
-    rawValue > calibrationMaxX * 2 &&
-    rawValue / 1000 <= calibrationMaxX * 1.5
-  ) {
-    return rawValue / 1000;
-  }
-  return rawValue;
+function normalizeFuelDebug(rawValue, calibrationMaxX, isMillivolts = false) {
+  return analyticsService.normalizeFuelRaw(rawValue, calibrationMaxX, isMillivolts);
 }
 
 /**
