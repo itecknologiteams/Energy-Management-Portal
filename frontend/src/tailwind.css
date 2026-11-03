@@ -1,3 +1,115 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Preflight is off (see tailwind.config.js), so native buttons keep the
+   browser's grey bordered look. Inside .ems-ui they start blank instead;
+   :where() keeps this at zero specificity so utility and App.css classes
+   still win. */
+:where(.ems-ui) button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+:where(.ems-ui) button:disabled {
+  cursor: default;
+}
+
+/* Preflight also gives every element a solid border style, which Tailwind's
+   `border` (width only) relies on — without it no border ever shows. Same
+   zero-specificity scoping, so App.css borders are untouched. */
+:where(.ems-ui) *,
+:where(.ems-ui) *::before,
+:where(.ems-ui) *::after {
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
+}
+
+/* ── Live Fuel Tank ─────────────────────────────────────────────────────────
+   Laid out by the card's own width (container queries), not the screen's:
+   wide → the design's layout (title, status and level on the left; tank;
+   litre scale); narrower → title across the top, level | tank | scale
+   below; phone → stacked. */
+.fuel-tank-card { container-type: inline-size; }
+.fuel-tank-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: center;
+  gap: 12px 24px;
+  height: 100%;
+}
+/* Title and level are separate grid items until the wide layout, where they
+   stack together in the left column. The tank and its scale are one SVG
+   (.fuel-tank-gauge, viewBox 340×310 — heights keep that ratio). Sizes stay
+   within the card's usual height so the card does not grow. */
+.fuel-tank-info { display: contents; }
+.fuel-tank-gauge { width: 270px; height: 246px; }
+.fuel-tank-percent { font-size: 2.25rem; line-height: 2.5rem; }
+
+@container (min-width: 420px) {
+  .fuel-tank-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+    justify-items: stretch;
+    align-content: center;
+  }
+  .fuel-tank-title { grid-column: 1 / -1; grid-row: 1; }
+  .fuel-tank-level { grid-column: 1; grid-row: 2; }
+  .fuel-tank-gauge { grid-column: 2; grid-row: 2; width: 236px; height: 215px; }
+}
+
+/* Design layout: info on the left, tank + scale beside it */
+@container (min-width: 480px) {
+  .fuel-tank-info { display: block; grid-column: 1; grid-row: 1; align-self: center; }
+  .fuel-tank-gauge { grid-column: 2; grid-row: 1; width: 252px; height: 230px; }
+  .fuel-tank-percent { font-size: 3rem; line-height: 1; }
+}
+/* Grow the tank with the card (left column needs ~200px + 24px gap) */
+@container (min-width: 520px) {
+  .fuel-tank-gauge { width: 296px; height: 270px; }
+}
+@container (min-width: 560px) {
+  .fuel-tank-gauge { width: 320px; height: 292px; }
+}
+@container (min-width: 640px) {
+  .fuel-tank-gauge { width: 340px; height: 310px; }
+}
+
+/* The fuel surface ripples by sliding a wave one tank-width left, looped */
+.fuel-wave { animation: fuel-wave 5s linear infinite; }
+@keyframes fuel-wave {
+  from { transform: translateX(0); }
+  to { transform: translateX(108px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fuel-wave { animation: none; }
+}
+
+/* ── Operating Conditions ───────────────────────────────────────────────────
+   Gauge beside the reading cards; the four cards sit in one row when the
+   panel has room for them, else in a 2×2 grid. */
+.op-conditions { container-type: inline-size; }
+.op-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  align-items: center;
+  gap: 16px;
+}
+.op-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+@container (min-width: 520px) {
+  .op-layout { grid-template-columns: auto minmax(0, 1fr); justify-items: stretch; }
+}
+@container (min-width: 660px) {
+  .op-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}

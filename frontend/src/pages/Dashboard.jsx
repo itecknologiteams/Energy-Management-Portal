@@ -2,16 +2,33 @@ import React, { useState, useEffect } from 'react';
 import Sidebar from '../components/Layout/Sidebar';
 import Header from '../components/common/Header';
 import LogoutModal from '../components/common/LogoutModal';
-import KPICards from '../components/Dashboard/KPICards';
-import FuelTrendChart from '../components/Dashboard/FuelTrendChart';
-import GeneratorFuelChart from '../components/Dashboard/GeneratorFuelChart';
-import GeneratorBarChart from '../components/Dashboard/GeneratorBarChart';
-import GeneratorAccordion from '../components/Dashboard/GeneratorAccordion';
-import AlertsCard from '../components/Dashboard/AlertsCard';
 import AlertRulesModal from '../components/Alerts/AlertRulesModal';
+import UnitSummaryBar from '../components/UnitDashboard/UnitSummaryBar';
+import LiveFuelTank from '../components/UnitDashboard/LiveFuelTank';
+import UnitDetailPanel from '../components/UnitDashboard/UnitDetailPanel';
+import FuelTrendCard from '../components/UnitDashboard/FuelTrendCard';
+import GeneratorFuelList from '../components/UnitDashboard/GeneratorFuelList';
+import RecentActivity from '../components/UnitDashboard/RecentActivity';
+import FuelLevelHistory from '../components/UnitDashboard/FuelLevelHistory';
+import MaintenanceSettingsModal from '../components/UnitDashboard/MaintenanceSettingsModal';
 import { useAuth } from '../contexts/AuthContext';
 import useTemperatureAlerts, { alertKey, describeAlert } from '../hooks/useTemperatureAlerts';
-import { getDashboardData, getDashboardDataRange, formatApiError, ValidationError, NotFoundError } from '../services/api';
+import {
+  getDashboardData,
+  getDashboardDataRange,
+  getMaintenance,
+  saveMaintenance,
+  formatApiError,
+  ValidationError,
+  NotFoundError,
+} from '../services/api';
+import { fuelCapacity } from '../utils/unitData';
+
+const UNIT_TABS = [
+  { id: 'overview', label: 'Overview', icon: 'fa-chart-simple' },
+  { id: 'fuel', label: 'Fuel Status', icon: 'fa-gas-pump' },
+  { id: 'maintenance', label: 'Maintenance', icon: 'fa-wrench' },
+];
 
 // Build a YYYY-MM-DD string from a Date using the local timezone,
 // preventing the UTC-offset shift that toISOString() introduces.
@@ -29,7 +46,6 @@ const Dashboard = ({ onNavigate }) => {
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [filterDateRange, setFilterDateRange] = useState({ start: toLocalDateStr(new Date()), end: toLocalDateStr(new Date()) }); // updated on each fetchData run
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showAlertRules, setShowAlertRules] = useState(false);
@@ -65,6 +81,38 @@ const Dashboard = ({ onNavigate }) => {
   }));
   const allAlerts = [...temperatureAlertItems, ...(dashboardData?.alerts || [])];
 
+  // ── Selected unit and its maintenance status ────────────────────────────
+  const units = dashboardData?.vehicles || [];
+  const [selectedUnitId, setSelectedUnitId] = useState(null);
+  const [tab, setTab] = useState('maintenance');
+  const [maintenance, setMaintenance] = useState(null);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [showMaintenanceSettings, setShowMaintenanceSettings] = useState(false);
+
+  // Default to the first unit that can show litres, else the first unit
+  const selectedUnit = units.find((u) => u.id === selectedUnitId)
+    || units.find((u) => fuelCapacity(u))
+    || units[0]
+    || null;
+  const selectedId = selectedUnit?.id ?? null;
+
+  useEffect(() => {
+    if (!fleetId || !selectedId) return undefined;
+    let cancelled = false;
+    setMaintenanceLoading(true);
+    setMaintenance(null);
+    getMaintenance(fleetId, selectedId)
+      .then((m) => { if (!cancelled) setMaintenance(m); })
+      .catch((err) => console.error('Maintenance load failed:', err))
+      .finally(() => { if (!cancelled) setMaintenanceLoading(false); });
+    return () => { cancelled = true; };
+  }, [fleetId, selectedId]);
+
+  const handleSaveMaintenance = async (settings) => {
+    const saved = await saveMaintenance(fleetId, selectedId, settings);
+    setMaintenance(saved);
+  };
+
   // Update date display
   useEffect(() => {
     const updateDate = () => {
@@ -97,7 +145,6 @@ const Dashboard = ({ onNavigate }) => {
 
         if (filter === 'Today') {
           filterStart = filterEnd = todayStr;
-          setSelectedDate(todayStr);
           data = await getDashboardData(fleetId || 1735, todayStr);
         } else if (filter === 'This Week') {
           const weekStart = new Date(today);
@@ -107,20 +154,17 @@ const Dashboard = ({ onNavigate }) => {
           weekStart.setDate(weekStart.getDate() - daysToMonday);
           filterStart = toLocalDateStr(weekStart);
           filterEnd = todayStr;
-          setSelectedDate(todayStr);
           data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
         } else if (filter === 'This Month') {
           const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
           filterStart = toLocalDateStr(monthStart);
           filterEnd = todayStr;
-          setSelectedDate(todayStr);
           data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
         } else if (filter === 'Last Month') {
           const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
           const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0); // last day of prev month
           filterStart = toLocalDateStr(lastMonthStart);
           filterEnd = toLocalDateStr(lastMonthEnd);
-          setSelectedDate(filterEnd);
           data = await getDashboardDataRange(fleetId || 1735, filterStart, filterEnd);
         }
 
@@ -406,7 +450,7 @@ const Dashboard = ({ onNavigate }) => {
   };
 
   return (
-    <div className="dashboard-container">
+    <div className="dashboard-container ems-ui">
       <Sidebar
         activeItem={activeNavItem}
         onLogout={handleLogoutClick}
@@ -433,41 +477,67 @@ const Dashboard = ({ onNavigate }) => {
           alerts={allAlerts}
           onManageAlerts={() => setShowAlertRules(true)}
         />
-        <div className="dashboard-body" style={{ position: 'relative' }}>
+        <MaintenanceSettingsModal
+          isOpen={showMaintenanceSettings}
+          onClose={() => setShowMaintenanceSettings(false)}
+          unitName={selectedUnit?.name}
+          settings={maintenance?.settings}
+          onSave={handleSaveMaintenance}
+        />
+        <div className="relative space-y-5">
           {loading && <LoadingOverlay />}
-          
+
           {error ? (
             <ErrorDisplay />
+          ) : !loading && units.length === 0 ? (
+            <p className="rounded-2xl bg-white p-10 text-center text-gray-500">No generators found for this fleet.</p>
           ) : (
             <>
-              <KPICards data={dashboardData?.kpi} filter={filter} />
-              <div className="charts-section">
-                <FuelTrendChart data={dashboardData?.fuelTrend} filter={filter} />
-                <GeneratorBarChart data={dashboardData?.vehicleFuelData} filter={filter} />
-              </div>
-              <GeneratorFuelChart
-                vehicles={dashboardData?.vehicles}
-                selectedDate={selectedDate}
-                filter={filter}
-                startDate={filterDateRange.start}
-                endDate={filterDateRange.end}
+              <UnitSummaryBar
+                units={units}
+                unit={selectedUnit}
+                onSelectUnit={setSelectedUnitId}
+                maintenance={maintenance}
+                onSetUpMaintenance={() => setShowMaintenanceSettings(true)}
               />
-              <div className="bottom-section">
-                <div className="table-card">
-                  <div className="card-header">
-                    <div className="card-title-section">
-                      <h3>Fleet Performance Overview</h3>
-                      <p>Real-time monitoring of all fleet vehicles</p>
-                    </div>
-                  </div>
-                  <div style={{ padding: '16px' }}>
-                    <GeneratorAccordion
-                      data={dashboardData?.vehicles}
-                      filter={filter}
-                    />
-                  </div>
+
+              <nav className="flex flex-wrap items-center gap-2" aria-label="Unit details">
+                {UNIT_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTab(t.id)}
+                    aria-pressed={tab === t.id}
+                    className={`inline-flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition-colors ${
+                      tab === t.id ? 'bg-orange-600 text-white shadow' : 'text-gray-700 hover:bg-white'
+                    }`}
+                  >
+                    <i className={`fas ${t.icon}`} aria-hidden="true"></i>
+                    {t.label}
+                  </button>
+                ))}
+              </nav>
+
+              <div className="grid grid-cols-1 min-[1440px]:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] gap-5">
+                <LiveFuelTank unit={selectedUnit} />
+                <UnitDetailPanel
+                  tab={tab}
+                  unit={selectedUnit}
+                  maintenance={maintenance}
+                  maintenanceLoading={maintenanceLoading}
+                  onEditMaintenance={() => setShowMaintenanceSettings(true)}
+                  temperatureAlert={temperatureAlerts.some((a) => a.vehicleId === selectedUnit?.id)}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.95fr)] gap-5">
+                <FuelTrendCard unit={selectedUnit} />
+                <GeneratorFuelList units={units} selectedId={selectedUnit?.id} onSelectUnit={setSelectedUnitId} />
+                <RecentActivity unit={selectedUnit} units={units} temperatureAlerts={temperatureAlerts} maintenance={maintenance} />
+                {/* Full width, so no empty cell is left beside it */}
+                <div className="lg:col-span-2 xl:col-span-3">
+                  <FuelLevelHistory units={units} unit={selectedUnit} onSelectUnit={setSelectedUnitId} />
                 </div>
-                <AlertsCard alerts={allAlerts} />
               </div>
             </>
           )}

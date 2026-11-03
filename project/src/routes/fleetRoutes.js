@@ -59,6 +59,14 @@ router.get(
   fleetController.getVehicleFuelSeries
 );
 
+// GET /api/vehicles/:vehicleId/sensor-series?date=YYYY-MM-DD — temperature / battery time-series for graphing
+router.get(
+  '/vehicles/:vehicleId/sensor-series',
+  noCache,
+  validateVehicleId,
+  fleetController.getVehicleSensorSeries
+);
+
 // ─── Fleet Analytics Endpoints ───────────────────────────────────────────────
 
 // GET /api/fleets/:fleetId/analytics?date=YYYY-MM-DD — calculate fleet analytics

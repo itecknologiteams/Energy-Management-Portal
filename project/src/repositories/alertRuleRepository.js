@@ -7,62 +7,23 @@
  *   { "2086": [ { id, vehicleId, metric, operator, threshold, enabled, ... } ] }
  *
  * The CRM/Tracking databases are shared production systems, so rules live
- * beside the API instead. Writes are serialised and go through a temp file +
- * rename, so a crash mid-write never leaves a half-written file.
+ * beside the API instead.
  */
 
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { createJsonFileStore } = require('../helpers/jsonFileStore');
 
 const RULES_FILE = process.env.ALERT_RULES_FILE
   || path.join(__dirname, '..', '..', 'data', 'alert-rules.json');
 
-// Every write waits for the previous one, so concurrent requests cannot
-// overwrite each other's changes.
-let writeQueue = Promise.resolve();
-
-async function readAll() {
-  try {
-    const text = await fs.promises.readFile(RULES_FILE, 'utf8');
-    const parsed = JSON.parse(text);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch (err) {
-    if (err.code === 'ENOENT') return {};
-    throw err;
-  }
-}
-
-async function writeAll(data) {
-  await fs.promises.mkdir(path.dirname(RULES_FILE), { recursive: true });
-  const tmp = `${RULES_FILE}.${process.pid}.tmp`;
-  await fs.promises.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
-  await fs.promises.rename(tmp, RULES_FILE);
-}
-
-/**
- * Apply `change` to the stored rules and save, one change at a time.
- *
- * @param {(data: Object) => any} change - mutates data, returns the result
- * @returns {Promise<any>} whatever `change` returned
- */
-function update(change) {
-  const run = writeQueue.then(async () => {
-    const data = await readAll();
-    const result = change(data);
-    await writeAll(data);
-    return result;
-  });
-  // Keep the queue alive even if this change fails
-  writeQueue = run.catch(() => {});
-  return run;
-}
+const store = createJsonFileStore(RULES_FILE);
 
 /**
  * @returns {Promise<Object>} every fleet's rules, keyed by fleet ID
  */
 async function listAllRules() {
-  return readAll();
+  return store.read();
 }
 
 /**
@@ -70,7 +31,7 @@ async function listAllRules() {
  * @returns {Promise<Object[]>} the fleet's rules, oldest first
  */
 async function listRules(fleetId) {
-  const data = await readAll();
+  const data = await store.read();
   return data[String(fleetId)] || [];
 }
 
@@ -80,7 +41,7 @@ async function listRules(fleetId) {
  * @returns {Promise<Object>} the stored rule
  */
 function createRule(fleetId, fields) {
-  return update((data) => {
+  return store.update((data) => {
     const now = new Date().toISOString();
     const rule = { id: crypto.randomUUID(), ...fields, createdAt: now, updatedAt: now };
     const key = String(fleetId);
@@ -96,7 +57,7 @@ function createRule(fleetId, fields) {
  * @returns {Promise<Object|null>} the updated rule, or null if not found
  */
 function updateRule(fleetId, ruleId, fields) {
-  return update((data) => {
+  return store.update((data) => {
     const rules = data[String(fleetId)] || [];
     const rule = rules.find((r) => r.id === ruleId);
     if (!rule) return null;
@@ -111,7 +72,7 @@ function updateRule(fleetId, ruleId, fields) {
  * @returns {Promise<boolean>} true if a rule was removed
  */
 function deleteRule(fleetId, ruleId) {
-  return update((data) => {
+  return store.update((data) => {
     const key = String(fleetId);
     const rules = data[key] || [];
     const kept = rules.filter((r) => r.id !== ruleId);

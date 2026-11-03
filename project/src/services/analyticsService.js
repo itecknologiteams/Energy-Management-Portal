@@ -134,6 +134,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
       workTime:           calculateWorkTime(trackingRows),
       fuel:               null,
       temperature:        calculateTemperature(trackingRows),
+      lastReadingAt:      trackingRows[trackingRows.length - 1].timestamp,
     };
   }
 
@@ -254,6 +255,7 @@ function calculateVehicleAnalytics(vehicleId, date, sensorKeys, trackingRows, wa
     workTime:           calculateWorkTime(trackingRows),
     fuel:               latestReading ? round(latestReading.fuel, 2) : getFinalFuelValue(rawSeries),
     temperature:        calculateTemperature(trackingRows),
+    lastReadingAt:      trackingRows[trackingRows.length - 1].timestamp,
   };
 }
 
@@ -1795,6 +1797,7 @@ function createEmptyAnalytics() {
     workTime: null,
     fuel: null,
     temperature: null,
+    lastReadingAt: null,
   };
 }
 
@@ -1822,6 +1825,7 @@ module.exports = {
   effectiveIgnition,
   calculateGeneratorRunIntervals,
   calculateTemperature,
+  calculateWorkTime,
   parseParams,
   getParamValue,
   parseNumeric,

@@ -9,6 +9,7 @@ const errorHandler = require('./middleware/errorHandler');
 const fleetRoutes = require('./routes/fleetRoutes');
 const authRoutes = require('./routes/authRoutes');
 const alertRoutes = require('./routes/alertRoutes');
+const maintenanceRoutes = require('./routes/maintenanceRoutes');
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.get('/health', (_req, res) => {
 app.use('/api', fleetRoutes);
 app.use('/api', authRoutes);
 app.use('/api', alertRoutes);
+app.use('/api', maintenanceRoutes);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ERROR HANDLING (ORDER MATTERS — LAST)

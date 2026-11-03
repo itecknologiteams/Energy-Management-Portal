@@ -738,7 +738,54 @@ async function getFleetBatteryCheck(req, res, next) {
   }
 }
 
+/**
+ * GET /api/vehicles/:vehicleId/sensor-series?date=YYYY-MM-DD
+ * Temperature, supply battery and GPS battery for every reading of a day,
+ * for the dashboard's history graph. Values are the device's own: io72 / 10
+ * (°C), io66 (V, "Mains") and io67 (V, "B.Battery"); the dedicated columns
+ * stand in for devices that send no Params.
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @param {import('express').NextFunction} next
+ */
+async function getVehicleSensorSeries(req, res, next) {
+  try {
+    const { vehicleId } = req.params;
+    const { date } = req.query;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'date query parameter is required (YYYY-MM-DD)' },
+      });
+    }
+
+    const { parseParams, getParamValue, parseNumeric, calculateTemperature } = analyticsService;
+    // Columns hold volts on some devices and millivolts on others
+    const volts = (v) => (v === null ? null : v > 100 ? v / 1000 : v);
+
+    const rows = await getTrackingData(parseInt(vehicleId, 10), date);
+    const series = rows.map((row) => {
+      const params = parseParams(row.params);
+      const battery = getParamValue(params, '66') ?? volts(parseNumeric(row.powerVolt));
+      const gpsBattery = getParamValue(params, '67') ?? volts(parseNumeric(row.backupBattery));
+      return {
+        timestamp: row.timestamp,
+        temperature: calculateTemperature([row]),
+        battery: battery !== null && battery > 0 ? battery : null,
+        gpsBattery: gpsBattery !== null && gpsBattery > 0 ? gpsBattery : null,
+      };
+    });
+
+    res.json({ success: true, vehicleId: parseInt(vehicleId, 10), date, series });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
+  getVehicleSensorSeries,
   getFleetVehicles,
   getFleetVehiclesWithSensors,
   getVehicleSensors,

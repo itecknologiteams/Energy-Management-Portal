@@ -224,6 +224,16 @@ export const deleteAlertRule = (fleetId, ruleId) =>
     method: 'DELETE',
   });
 
+// Generator maintenance — service settings and status
+export const getMaintenance = (fleetId, vehicleId) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/vehicles/${validators.vehicleId(vehicleId)}/maintenance`);
+
+export const saveMaintenance = (fleetId, vehicleId, settings) =>
+  fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/vehicles/${validators.vehicleId(vehicleId)}/maintenance`, {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+
 // Rules that the fleet's current readings break right now
 export const checkFleetAlerts = (fleetId) =>
   fetchApi(`/api/fleets/${validators.fleetId(fleetId)}/alerts/check`);
@@ -311,6 +321,14 @@ export const getVehicleFuelSeries = (vehicleId, date) => {
   validators.dateNotFuture(formattedDate);
 
   return fetchApi(`/api/vehicles/${validatedVehicleId}/fuel-series?date=${formattedDate}`);
+};
+
+// Temperature / battery / GPS battery for every reading of a day
+export const getVehicleSensorSeries = (vehicleId, date) => {
+  const validatedVehicleId = validators.vehicleId(vehicleId);
+  validators.dateFormat(date);
+  validators.dateNotFuture(date);
+  return fetchApi(`/api/vehicles/${validatedVehicleId}/sensor-series?date=${date}`);
 };
 
 // Dashboard Data Aggregator - Combines multiple API calls for dashboard
@@ -402,6 +420,8 @@ export const getDashboardData = async (fleetId = 1735, date) => {
           gpsBackupBattery: analytics.gpsBackupBattery ?? null,
           fuelLevel: analytics.fuel ?? '-',
           temperature: analytics.temperature ?? null,
+          // Time of the latest reading (PKT wall-clock, carried as UTC)
+          lastReadingAt: analytics.lastReadingAt ?? analytics.lastUpdate ?? null,
           fuelConsumption: analytics.fuelConsumption || 0,
           fuelTheft: analytics.fuelTheft || 0,
           fuelRefilled: analytics.fuelRefilled || 0,
@@ -503,6 +523,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
             workTime:           a.workTime            ?? 0,
             fuel:               a.fuel                ?? null,
             temperature:        a.temperature         ?? null,
+            lastReadingAt:      a.lastReadingAt ?? a.lastUpdate ?? null,
             lastUpdate:         a.lastUpdate          ?? null,
             dailyRuns:          [],
             fuelEvents:         (a.fuelEvents || []).map(e => ({ ...e, date: dayDate })),
@@ -519,6 +540,7 @@ function aggregateVehiclesAcrossDates(dayResults) {
         if (a.gpsBackupBattery != null) e.gpsBackupBattery = a.gpsBackupBattery;
         if (a.fuel             != null) e.fuel             = a.fuel;
         if (a.temperature      != null) e.temperature      = a.temperature;
+        if ((a.lastReadingAt ?? a.lastUpdate) != null) e.lastReadingAt = a.lastReadingAt ?? a.lastUpdate;
         if (a.lastUpdate       != null) e.lastUpdate       = a.lastUpdate;
         if (!e.generatorStartTime && a.generatorStartTime) e.generatorStartTime = a.generatorStartTime;
         if (a.generatorStopTime)                           e.generatorStopTime  = a.generatorStopTime;
@@ -600,6 +622,7 @@ export const getDashboardDataRange = async (fleetId = 1735, startDate, endDate) 
       gpsBackupBattery: analytics.gpsBackupBattery ?? null,
       fuelLevel:        analytics.fuel          ?? '-',
       temperature:      analytics.temperature   ?? null,
+      lastReadingAt:    analytics.lastReadingAt ?? null,
       fuelConsumption:  analytics.fuelConsumption  || 0,
       fuelTheft:        analytics.fuelTheft        || 0,
       fuelRefilled:     analytics.fuelRefilled     || 0,
